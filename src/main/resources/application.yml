@@ -1,0 +1,14 @@
+server:
+  port: 9099
+spring:
+  application:
+    name: oss-server
+minio:
+  # API 端点
+  endpoint: "http://192.168.1.100:9000/"
+  # 默认 Bucket 存储桶名称
+  bucketName: public
+  # Access Key
+  access-key: fmQleb8YBFUeMyxxxxxx
+  # Secret Key
+  secret-key: Bz6z1LVSW1vie4si3zxmtZVq666MV0v1MWxxxxxx

@@ -1,0 +1,58 @@
+// 构建脚本
+buildscript{
+    // 构建仓库
+    repositories {
+        mavenLocal()
+        maven { url 'https://repo.spring.io/milestone' }
+        maven { url "https://maven.aliyun.com/repository/central" }
+        mavenCentral()
+    }
+    // Gradle构建插件
+    dependencies {
+        classpath "org.springframework.boot:spring-boot-gradle-plugin:${springBootVersion}"
+    }
+}
+
+// 插件配置
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version "${springBootVersion}"
+    id 'io.spring.dependency-management' version "${dependencyManagementVersion}"
+}
+
+group = 'com.luckykuang'
+version = '1.0.0-SNAPSHOT'
+
+java {
+    sourceCompatibility = '17'
+}
+
+// 仓库配置
+repositories {
+    mavenLocal()
+    maven { url 'https://repo.spring.io/milestone' }
+    maven { url "https://maven.aliyun.com/repository/central" }
+    mavenCentral()
+}
+
+// 依赖配置
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter'
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    annotationProcessor "org.springframework.boot:spring-boot-configuration-processor"
+    implementation "org.apache.commons:commons-collections4:${collections4Version}"
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+    implementation "io.minio:minio:${minioVersion}"
+    implementation "com.github.xiaoymin:knife4j-openapi3-jakarta-spring-boot-starter:${knife4jVersion}"
+    implementation "com.alibaba:fastjson:${fastjsonVersion}"
+
+    testCompileOnly 'org.projectlombok:lombok'
+    testAnnotationProcessor 'org.projectlombok:lombok'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+// 编译编码为UTF-8
+tasks.withType(JavaCompile).configureEach {
+    it.options.encoding = "UTF-8"
+}
