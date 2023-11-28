@@ -18,22 +18,19 @@ package com.luckykuang.oss.vo;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotEmpty;
 import lombok.Data;
-
-import java.util.List;
 
 /**
  * @author luckykuang
- * @date 2023/11/23 15:16
+ * @date 2023/11/28 17:23
  */
 @Data
-@Schema(description = "存储桶VO类")
-public class BucketVO {
+@Schema(description = "存储桶策略VO类")
+public class BucketPolicyVO {
     @NotBlank
     @Schema(description = "存储桶名称")
     private String bucketName;
-    @NotEmpty
-    @Schema(description = "存储桶策略集合")
-    private List<String> bucketPolicyList;
+    @NotBlank
+    @Schema(description = "存储桶策略")
+    private String policy;
 }

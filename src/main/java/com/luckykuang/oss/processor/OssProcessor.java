@@ -14,20 +14,83 @@
  * limitations under the License.
  */
 
-package com.luckykuang.oss.util;
+package com.luckykuang.oss.processor;
 
+import com.luckykuang.oss.base.BusinessException;
+import com.luckykuang.oss.base.ErrorCode;
+import com.luckykuang.oss.util.ApplicationContextUtils;
+import io.minio.BucketExistsArgs;
+import io.minio.MinioClient;
+import io.minio.StatObjectArgs;
+import io.minio.StatObjectResponse;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 
 /**
- * 存储桶策略配置工具类
+ * 抽取的方法
  * @author luckykuang
- * @date 2023/11/23 14:19
+ * @date 2023/11/28 11:02
  */
+@Slf4j
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
-public final class OssUtils {
+public final class OssProcessor {
+
+    private static final MinioClient minioClient = ApplicationContextUtils.getBean(MinioClient.class);
+
+    /**
+     * 判断存储桶是否存在
+     * @param bucketName 存储桶名称
+     * @return 存在-true 不存在-false
+     */
+    public static boolean bucketExists(String bucketName){
+        BucketExistsArgs args = BucketExistsArgs.builder()
+                .bucket(bucketName)
+                .build();
+        try {
+            return minioClient.bucketExists(args);
+        } catch (Exception e){
+            log.error("查询存储桶状态异常",e);
+            throw new BusinessException(ErrorCode.UNKNOWN);
+        }
+    }
+
+    /**
+     * 获取文件信息
+     * @param bucketName 存储桶名称
+     * @param objectName url
+     * @return 返回文件信息
+     */
+    public static StatObjectResponse getStatObject(String bucketName, String objectName) {
+        StatObjectArgs args = StatObjectArgs.builder()
+                .bucket(bucketName)
+                .object(objectName)
+                .build();
+        try {
+            return minioClient.statObject(args);
+        } catch (Exception e){
+            log.error("获取对象信息异常",e);
+            throw new BusinessException(ErrorCode.UNKNOWN);
+        }
+    }
+
+    /**
+     * 获取文件名
+     * @param objectName url
+     * @return 无后缀的文件名
+     */
+    public static String getFileNameByObjectName(String objectName){
+        if (StringUtils.isBlank(objectName)){
+            return null;
+        }
+        String[] split = objectName.split("/");
+        String nameAndExt = split[split.length - 1];
+        return nameAndExt.substring(nameAndExt.lastIndexOf(".") + 1);
+    }
+
     /**
      * 存储桶默认策略
      * @param bucketName 存储桶名称

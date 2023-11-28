@@ -20,11 +20,14 @@ import com.luckykuang.oss.base.ApiResult;
 import com.luckykuang.oss.base.BusinessException;
 import com.luckykuang.oss.base.ErrorCode;
 import com.luckykuang.oss.config.OssProperties;
+import com.luckykuang.oss.processor.OssProcessor;
 import com.luckykuang.oss.service.OssService;
-import com.luckykuang.oss.util.OssUtils;
+import com.luckykuang.oss.vo.BucketPolicyVO;
 import com.luckykuang.oss.vo.BucketVO;
+import com.luckykuang.oss.vo.UploadFileVO;
 import io.minio.*;
 import io.minio.messages.Bucket;
+import io.minio.messages.Item;
 import jakarta.annotation.Resource;
 import jakarta.servlet.ServletOutputStream;
 import jakarta.servlet.http.HttpServletResponse;
@@ -40,8 +43,10 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 /**
  * @author luckykuang
@@ -63,20 +68,21 @@ public class OssServiceImpl implements OssService {
     @Override
     public ApiResult<String> createBucket(String bucketName) {
         try {
-            boolean found = minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucketName).build());
+            boolean found = OssProcessor.bucketExists(bucketName);
             if (found) {
                 return ApiResult.failed(ErrorCode.BUCKET_EXIST);
             }
-            MakeBucketArgs args = MakeBucketArgs.builder().bucket(bucketName).build();
+            MakeBucketArgs args2 = MakeBucketArgs.builder().bucket(bucketName).build();
             // 新建存储桶
-            minioClient.makeBucket(args);
+            minioClient.makeBucket(args2);
             // 设置存储桶只读策略
-            String bucketPolicy = OssUtils.readOnlyBucketPolicy(bucketName);
-            SetBucketPolicyArgs args2 = SetBucketPolicyArgs.builder()
-                    .bucket(bucketName).
-                    config(bucketPolicy).build();
+            String bucketPolicy = OssProcessor.readOnlyBucketPolicy(bucketName);
+            SetBucketPolicyArgs args3 = SetBucketPolicyArgs.builder()
+                    .bucket(bucketName)
+                    .config(bucketPolicy)
+                    .build();
             // 设置存储桶策略
-            minioClient.setBucketPolicy(args2);
+            minioClient.setBucketPolicy(args3);
         } catch (Exception e){
             log.error("存储桶创建异常",e);
             throw new BusinessException(ErrorCode.UNKNOWN);
@@ -87,20 +93,23 @@ public class OssServiceImpl implements OssService {
     @Override
     public ApiResult<String> createCustomBucket(BucketVO bucketVO) {
         try {
-            boolean found = minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucketVO.getBucketName()).build());
+            boolean found = OssProcessor.bucketExists(bucketVO.getBucketName());
             if (found) {
                 return ApiResult.failed(ErrorCode.BUCKET_EXIST);
             }
-            MakeBucketArgs args = MakeBucketArgs.builder().bucket(bucketVO.getBucketName()).build();
+            MakeBucketArgs args2 = MakeBucketArgs.builder()
+                    .bucket(bucketVO.getBucketName())
+                    .build();
             // 新建存储桶
-            minioClient.makeBucket(args);
+            minioClient.makeBucket(args2);
             // 设置存储桶自定义策略
-            String bucketPolicy = OssUtils.customBucketPolicy(bucketVO.getBucketName(),bucketVO.getBucketPolicyList());
-            SetBucketPolicyArgs args2 = SetBucketPolicyArgs.builder()
-                    .bucket(bucketVO.getBucketName()).
-                    config(bucketPolicy).build();
+            String bucketPolicy = OssProcessor.customBucketPolicy(bucketVO.getBucketName(),bucketVO.getBucketPolicyList());
+            SetBucketPolicyArgs args3 = SetBucketPolicyArgs.builder()
+                    .bucket(bucketVO.getBucketName())
+                    .config(bucketPolicy)
+                    .build();
             // 设置存储桶策略
-            minioClient.setBucketPolicy(args2);
+            minioClient.setBucketPolicy(args3);
         } catch (Exception e){
             log.error("存储桶创建异常",e);
             throw new BusinessException(ErrorCode.UNKNOWN);
@@ -115,7 +124,9 @@ public class OssServiceImpl implements OssService {
             if (!found) {
                 return ApiResult.failed(ErrorCode.BUCKET_NOT_EXIST);
             }
-            RemoveBucketArgs args = RemoveBucketArgs.builder().bucket(bucketName).build();
+            RemoveBucketArgs args = RemoveBucketArgs.builder()
+                    .bucket(bucketName)
+                    .build();
             minioClient.removeBucket(args);
         } catch (Exception e){
             log.error("存储桶删除异常",e);
@@ -201,7 +212,10 @@ public class OssServiceImpl implements OssService {
     }
 
     @Override
-    public ApiResult<String> uploadFile(String fileName, InputStream inputStream, String contentType) {
+    public ApiResult<String> uploadFileByStream(UploadFileVO uploadFileVO) {
+        String fileName = uploadFileVO.getFileName();
+        InputStream inputStream = uploadFileVO.getInputStream();
+        String contentType = uploadFileVO.getContentType();
         String filePath;
         // 文件名称
         if (StringUtils.isBlank(fileName)) {
@@ -299,6 +313,130 @@ public class OssServiceImpl implements OssService {
             minioClient.removeObject(args);
         } catch (Exception e) {
             log.error("删除文件异常",e);
+            throw new BusinessException(ErrorCode.UNKNOWN);
+        }
+    }
+
+    @Override
+    public List<String> listFilesByBucketName(String bucketName,String prefix,Integer size) {
+        ListObjectsArgs args = ListObjectsArgs.builder()
+                .bucket(bucketName)
+                // 前缀
+                .prefix(prefix)
+                // 递归查找
+                .recursive(true)
+                // 避免性能问题，暂时最多查询100条数据
+                .maxKeys(size > 100 ? 100 : size)
+                .build();
+        Iterable<Result<Item>> results = minioClient.listObjects(args);
+        List<String> files = new ArrayList<>();
+        try {
+            for (Result<Item> result : results) {
+                Item item = result.get();
+                files.add(bucketName + "/" + item.objectName());
+            }
+        } catch (Exception e){
+            log.error("查询文件列表异常",e);
+            throw new BusinessException(ErrorCode.UNKNOWN);
+        }
+        return files;
+    }
+
+    @Override
+    public ApiResult<String> setBucketPolicy(BucketPolicyVO bucketPolicyVO) {
+        String bucketName = bucketPolicyVO.getBucketName();
+        String policy = bucketPolicyVO.getPolicy();
+        SetBucketPolicyArgs args = SetBucketPolicyArgs.builder()
+                .bucket(bucketName)
+                // 策略配置
+                .config(policy)
+                .build();
+        try {
+            // 设置存储桶策略
+            minioClient.setBucketPolicy(args);
+        } catch (Exception e){
+            log.error("设置存储桶策略异常",e);
+            throw new BusinessException(ErrorCode.UNKNOWN);
+        }
+        return ApiResult.success();
+    }
+
+    @Override
+    public String getBucketPolicy(String bucketName) {
+        GetBucketPolicyArgs args = GetBucketPolicyArgs.builder()
+                .bucket(bucketName)
+                .build();
+        try {
+            // 查询存储桶策略
+            return minioClient.getBucketPolicy(args);
+        } catch (Exception e){
+            log.error("查询存储桶策略异常",e);
+            throw new BusinessException(ErrorCode.UNKNOWN);
+        }
+    }
+
+    @Override
+    public String getPresignedObjectUrl(String bucketName,String objectName) {
+        GetPresignedObjectUrlArgs args = GetPresignedObjectUrlArgs.builder()
+                .bucket(bucketName)
+                .object(objectName)
+                // 失效时间设置为1天，不设置默认是7天
+                .expiry(1, TimeUnit.DAYS)
+                .build();
+        try {
+            return minioClient.getPresignedObjectUrl(args);
+        } catch (Exception e){
+            log.error("生成临时访问url异常",e);
+            throw new BusinessException(ErrorCode.UNKNOWN);
+        }
+    }
+
+    @Override
+    public Long getFileChunkNumber(String bucketName, String objectName, Long length) {
+        StatObjectResponse statObject = OssProcessor.getStatObject(bucketName, objectName);
+        // 文件的长度
+        long size = statObject.size();
+        return size / length;
+    }
+
+    @Override
+    public void downloadFileChunk(String bucketName,String objectName,Long offset,Long length,HttpServletResponse response) {
+        StatObjectResponse statObject = OssProcessor.getStatObject(bucketName, objectName);
+        // 文件的长度
+        long size = statObject.size();
+        if (offset > size) {
+            throw new BusinessException(ErrorCode.UNKNOWN);
+        }
+        if (length != null && (offset + length) > size){
+            throw new BusinessException(ErrorCode.UNKNOWN);
+        }
+        String filename;
+        String oldName = OssProcessor.getFileNameByObjectName(objectName);
+        if (length == null){
+            filename = oldName + "_1";
+        } else {
+            long num = (offset % length);
+            filename = oldName + "_" + num;
+        }
+
+        String fileNameUrl = URLEncoder.encode(filename, StandardCharsets.UTF_8);
+        response.setHeader("Content-Disposition", "attachment;filename=" + fileNameUrl);
+        response.addHeader("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+        response.addHeader("X-Original-File-Name", filename);
+        response.setContentType("application/octet-stream");
+
+        GetObjectArgs args = GetObjectArgs.builder()
+                .bucket(bucketName)
+                .object(objectName)
+                .offset(offset)
+                .length(length)
+                .build();
+        try(InputStream fileInputStream = minioClient.getObject(args);
+            ServletOutputStream fileOutputStream = response.getOutputStream()) {
+            IOUtils.copy(fileInputStream, fileOutputStream);
+            fileOutputStream.flush();
+        } catch (Exception e) {
+            log.error("下载文件块异常",e);
             throw new BusinessException(ErrorCode.UNKNOWN);
         }
     }

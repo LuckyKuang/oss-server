@@ -17,11 +17,12 @@
 package com.luckykuang.oss.service;
 
 import com.luckykuang.oss.base.ApiResult;
+import com.luckykuang.oss.vo.BucketPolicyVO;
 import com.luckykuang.oss.vo.BucketVO;
+import com.luckykuang.oss.vo.UploadFileVO;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.InputStream;
 import java.util.List;
 
 /**
@@ -48,7 +49,6 @@ public interface OssService {
      */
     ApiResult<String> deleteBucket(String bucketName);
 
-
     /**
      * 查询存储桶列表
      */
@@ -63,11 +63,9 @@ public interface OssService {
 
     /**
      * 文件上传
-     * @param fileName 上传的文件名
-     * @param inputStream 上传的文件流
-     * @param contentType 上传的文件类型
+     * @param uploadFileVO 入参对象
      */
-    ApiResult<String> uploadFile(String fileName, InputStream inputStream, String contentType);
+    ApiResult<String> uploadFileByStream(UploadFileVO uploadFileVO);
 
     /**
      * 下载文件
@@ -82,4 +80,47 @@ public interface OssService {
      * @param filePath 删除的文件路径
      */
     void removeFile(String bucketName, String filePath);
+
+    /**
+     * 查询存储桶下所有文件 - 存储桶必须是非私有
+     * @param bucketName 存储桶名称
+     */
+    List<String> listFilesByBucketName(String bucketName,String prefix,Integer size);
+
+    /**
+     * 设置存储桶策略
+     * @param bucketPolicyVO 入参对象
+     */
+    ApiResult<String> setBucketPolicy(BucketPolicyVO bucketPolicyVO);
+
+    /**
+     * 查询存储桶策略
+     * @param bucketName 存储桶名称
+     */
+    String getBucketPolicy(String bucketName);
+
+    /**
+     * 生成临时访问url - 用于私有存储桶生成临时查看权限
+     * @param bucketName 存储桶名称
+     * @param objectName url
+     */
+    String getPresignedObjectUrl(String bucketName,String objectName);
+
+    /**
+     * 根据指定步长，得到文件被分片的数量
+     * @param bucketName 存储桶名称
+     * @param objectName url
+     * @param length     步长
+     * @return           分片的数量
+     */
+    Long getFileChunkNumber(String bucketName,String objectName,Long length);
+
+    /**
+     * 下载文件 - 分片下载
+     * @param bucketName 存储桶名称
+     * @param objectName url
+     * @param offset     起始字节的位置
+     * @param length     每次读取的长度 - 如果为空则代表读到文件结尾
+     */
+    void downloadFileChunk(String bucketName,String objectName,Long offset,Long length,HttpServletResponse response);
 }

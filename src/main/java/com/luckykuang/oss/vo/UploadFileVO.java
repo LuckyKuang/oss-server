@@ -18,22 +18,25 @@ package com.luckykuang.oss.vo;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
-import java.util.List;
+import java.io.InputStream;
 
 /**
  * @author luckykuang
- * @date 2023/11/23 15:16
+ * @date 2023/11/28 17:15
  */
 @Data
-@Schema(description = "存储桶VO类")
-public class BucketVO {
+@Schema(description = "文件上传VO类")
+public class UploadFileVO {
     @NotBlank
-    @Schema(description = "存储桶名称")
-    private String bucketName;
-    @NotEmpty
-    @Schema(description = "存储桶策略集合")
-    private List<String> bucketPolicyList;
+    @Schema(description = "上传的文件名")
+    private String fileName;
+    @NotNull
+    @Schema(description = "上传的文件流")
+    private InputStream inputStream;
+    @NotBlank
+    @Schema(description = "上传的文件类型")
+    private String contentType;
 }

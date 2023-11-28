@@ -39,6 +39,7 @@ repositories {
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter'
     implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
     annotationProcessor "org.springframework.boot:spring-boot-configuration-processor"
     implementation "org.apache.commons:commons-collections4:${collections4Version}"
     compileOnly 'org.projectlombok:lombok'
@@ -46,6 +47,8 @@ dependencies {
     implementation "io.minio:minio:${minioVersion}"
     implementation "com.github.xiaoymin:knife4j-openapi3-jakarta-spring-boot-starter:${knife4jVersion}"
     implementation "com.alibaba:fastjson:${fastjsonVersion}"
+    implementation "org.springdoc:springdoc-openapi-starter-webmvc-ui:${springdocVersion}"
+
 
     testCompileOnly 'org.projectlombok:lombok'
     testAnnotationProcessor 'org.projectlombok:lombok'

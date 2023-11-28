@@ -12,3 +12,16 @@ minio:
   access-key: fmQleb8YBFUeMyxxxxxx
   # Secret Key
   secret-key: Bz6z1LVSW1vie4si3zxmtZVq666MV0v1MWxxxxxx
+# swagger 配置
+springdoc:
+  api-docs:
+    # true - 开启API文档功能，false - 关闭API文档功能
+    enabled: true
+  swagger-ui:
+    enabled: true
+    # “list”（仅展开标记）、“full”（展开标记和操作）、“none”（不展开任何内容）。
+    docExpansion: none
+    # “alpha”（按路径字母数字排序），“method”（按HTTP方法排序）
+    operationsSorter: method
+  # GET请求下，让swagger将DTO封装入参解析成form参数
+  default-flat-param-object: true

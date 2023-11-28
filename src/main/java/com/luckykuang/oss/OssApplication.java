@@ -16,6 +16,7 @@
 
 package com.luckykuang.oss;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
@@ -25,9 +26,12 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * @author luckykuang
  * @date 2023/11/14 15:36
  */
+@Slf4j
 @SpringBootApplication
 public class OssApplication {
     public static void main(String[] args) {
         SpringApplication.run(OssApplication.class,args);
+        log.info("Github Url:https://github.com/LuckyKuang/oss-server");
+        log.info("Swagger Url:http://localhost:9099/swagger-ui/index.html#/");
     }
 }
