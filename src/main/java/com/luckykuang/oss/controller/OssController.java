@@ -23,6 +23,7 @@ import com.luckykuang.oss.vo.BucketVO;
 import com.luckykuang.oss.vo.UploadFileVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.constraints.NotBlank;
@@ -74,12 +75,10 @@ public class OssController {
         return ossService.listBuckets();
     }
 
-    @Operation(summary = "文件上传", description = "上传File文件", parameters = {
-            @Parameter(name = "file",description = "上传的文件"),
-            @Parameter(name = "bucketName",description = "存储桶名称")
-    })
+    @Operation(summary = "文件上传", description = "上传File文件")
     @PostMapping(value = "uploadFile",consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ApiResult<String> uploadFile(@RequestPart MultipartFile file, @NotBlank String bucketName){
+    public ApiResult<String> uploadFile(@Schema(description = "上传的文件",type = "file") @RequestPart MultipartFile file,
+                                        @Schema(description = "存储桶名称") @RequestPart String bucketName){
         return ossService.uploadFile(file,bucketName);
     }
 
@@ -103,7 +102,7 @@ public class OssController {
             @Parameter(name = "filePath",description = "删除的文件路径")
     })
     @DeleteMapping("removeFile/{bucketName}")
-    public void removeFile(@PathVariable String bucketName,@NotBlank String filePath){
+    public void removeFile(@PathVariable String bucketName,@RequestParam @NotBlank String filePath){
         ossService.removeFile(bucketName,filePath);
     }
 
@@ -155,7 +154,7 @@ public class OssController {
             @Parameter(name = "bucketName",description = "存储桶名称"),
             @Parameter(name = "objectName",description = "文件路径"),
             @Parameter(name = "offset",description = "起始字节的位置"),
-            @Parameter(name = "length",description = "分片长度")
+            @Parameter(name = "length",description = "分片长度 - 如果为空则代表读到文件结尾")
     })
     @GetMapping("downloadFileChunk")
     public void downloadFileChunk(@NotBlank String bucketName, @NotBlank String objectName, @NotNull Long offset,
