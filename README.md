@@ -8,25 +8,35 @@
 - [x] 非私有存储桶文件列表查询
 - [x] 私有存储桶临时连接生成
 - [x] 文件分片(断点)下载
-- [ ] 文件分片(断点)上传
 
 ## docker安装minio
 
 9000端口：是minio api连接用
 
-9090端口：是minio console浏览器访问用，此端口根据`--console-address`参数定义
+9001端口：是minio console浏览器访问用，此端口根据`--console-address`参数定义
 
 ```shell
-docker run \
--d \
--p 9000:9000 \
--p 9090:9090 \
---name minio \
--v /home/pontus.fan/minio/data:/data \
--e "MINIO_ROOT_USER=admin" \
--e "MINIO_ROOT_PASSWORD=minio123456" \
-quay.io/minio/minio server /data --console-address ":9090"
+docker run -d \
+  -p 9000:9000 \
+  -p 9001:9001 \
+  --name minio \
+  -v /home/pontus.fan/minio/data:/data \
+  -e "MINIO_ROOT_USER=admin" \
+  -e "MINIO_ROOT_PASSWORD=minio123456" \
+  minio/minio:RELEASE.2025-04-22T22-12-26Z server /data --console-address ":9001"
 ```
+
+> `RELEASE.2025-04-22T22-12-26Z`是最后一个有控制台操作的版本
+> 
+> 默认用户名密码为`admin` `minio123456`
+> 
+> 新增bucket为`public`
+> 
+> 修改bucket权限为`public`
+> 
+> 浏览器访问地址：http://192.168.1.100:9001
+> 
+> 图片访问地址(举例)：http://192.168.1.100:9000/2025/12/29/015dcf1955124393bce7e37fb664e985.png
 
 ## minio存储桶策略参数说明
 
