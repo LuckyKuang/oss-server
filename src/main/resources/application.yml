@@ -3,6 +3,10 @@ server:
 spring:
   application:
     name: oss-server
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 100MB
 minio:
   # API 端点
   endpoint: "http://192.168.1.100:9000/"

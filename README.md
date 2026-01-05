@@ -2,12 +2,17 @@
 
 ## 已实现功能
 
-- [x] 存储桶新增/删除/查询
-- [x] 设置/获取存储桶策略
-- [x] 文件上传/下载/删除
-- [x] 非私有存储桶文件列表查询
-- [x] 私有存储桶临时连接生成
-- [x] 文件分片(断点)下载
+✅ 存储桶新增/删除/查询
+
+✅ 设置/获取存储桶策略
+
+✅ 文件上传/下载/删除
+
+✅ 非私有存储桶文件列表查询
+
+✅ 私有存储桶临时连接生成
+
+✅ 文件分片(断点)下载
 
 ## docker安装minio
 
@@ -37,6 +42,19 @@ docker run -d \
 > 浏览器访问地址：http://192.168.1.100:9001
 > 
 > 图片访问地址(举例)：http://192.168.1.100:9000/2025/12/29/015dcf1955124393bce7e37fb664e985.png
+
+Apache2.0协议旧版安装(该版本Console和API共用一个9000端口。)
+
+```bash
+docker run -d \
+ -p 9000:9000 \
+ --name minio \
+ -v /home/pontus.fan/minio/data:/data \
+ -e MINIO_ROOT_USER=admin \
+ -e MINIO_ROOT_PASSWORD=minio123456 \
+ minio/minio:RELEASE.2021-04-22T15-44-28Z \
+ server /data --address :9000
+```
 
 ## minio存储桶策略参数说明
 
