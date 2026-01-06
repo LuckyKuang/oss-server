@@ -88,7 +88,8 @@ public final class OssProcessor {
         }
         String[] split = objectName.split("/");
         String nameAndExt = split[split.length - 1];
-        return nameAndExt.substring(nameAndExt.lastIndexOf(".") + 1);
+        int lastDotIndex = nameAndExt.lastIndexOf(".");
+        return lastDotIndex == -1 ? nameAndExt : nameAndExt.substring(0, lastDotIndex);
     }
 
     /**
