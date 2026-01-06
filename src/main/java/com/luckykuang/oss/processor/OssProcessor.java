@@ -88,7 +88,8 @@ public final class OssProcessor {
         }
         String[] split = objectName.split("/");
         String nameAndExt = split[split.length - 1];
-        return nameAndExt.substring(nameAndExt.lastIndexOf(".") + 1);
+        int lastDotIndex = nameAndExt.lastIndexOf(".");
+        return lastDotIndex == -1 ? nameAndExt : nameAndExt.substring(0, lastDotIndex);
     }
 
     /**
@@ -110,7 +111,11 @@ public final class OssProcessor {
                 "                \"s3:PutObject\",\n" +
                 "                \"s3:DeleteObject\"\n" +
                 "      ],\n" +
-                "      \"Principal\":\"*\",\n" +
+                "      \"Principal\":{\n" +
+                "                \"AWS\": [\n" +
+                "                    \"*\"\n" +
+                "                ]\n" +
+                "            },\n" +
                 "      \"Resource\": [\n" +
                 "        \"arn:aws:s3:::"+bucketName+"/*\"\n" +
                 "      ]\n" +
@@ -143,7 +148,11 @@ public final class OssProcessor {
                 "      \"Action\": [\n" +
                 rule +
                 "      ],\n" +
-                "      \"Principal\":\"*\",\n" +
+                "      \"Principal\":{\n" +
+                "                \"AWS\": [\n" +
+                "                    \"*\"\n" +
+                "                ]\n" +
+                "            },\n" +
                 "      \"Resource\": [\n" +
                 "        \"arn:aws:s3:::"+bucketName+"/*\"\n" +
                 "      ]\n" +
@@ -166,7 +175,11 @@ public final class OssProcessor {
                 "      \"Action\": [\n" +
                 "                \"s3:GetObject\"\n" +
                 "      ],\n" +
-                "      \"Principal\":\"*\",\n" +
+                "      \"Principal\":{\n" +
+                "                \"AWS\": [\n" +
+                "                    \"*\"\n" +
+                "                ]\n" +
+                "            },\n" +
                 "      \"Resource\": [\n" +
                 "        \"arn:aws:s3:::"+bucketName+"/*\"\n" +
                 "      ]\n" +
