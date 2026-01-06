@@ -110,7 +110,11 @@ public final class OssProcessor {
                 "                \"s3:PutObject\",\n" +
                 "                \"s3:DeleteObject\"\n" +
                 "      ],\n" +
-                "      \"Principal\":\"*\",\n" +
+                "      \"Principal\":{\n" +
+                "                \"AWS\": [\n" +
+                "                    \"*\"\n" +
+                "                ]\n" +
+                "            },\n" +
                 "      \"Resource\": [\n" +
                 "        \"arn:aws:s3:::"+bucketName+"/*\"\n" +
                 "      ]\n" +
@@ -143,7 +147,11 @@ public final class OssProcessor {
                 "      \"Action\": [\n" +
                 rule +
                 "      ],\n" +
-                "      \"Principal\":\"*\",\n" +
+                "      \"Principal\":{\n" +
+                "                \"AWS\": [\n" +
+                "                    \"*\"\n" +
+                "                ]\n" +
+                "            },\n" +
                 "      \"Resource\": [\n" +
                 "        \"arn:aws:s3:::"+bucketName+"/*\"\n" +
                 "      ]\n" +
@@ -166,7 +174,11 @@ public final class OssProcessor {
                 "      \"Action\": [\n" +
                 "                \"s3:GetObject\"\n" +
                 "      ],\n" +
-                "      \"Principal\":\"*\",\n" +
+                "      \"Principal\":{\n" +
+                "                \"AWS\": [\n" +
+                "                    \"*\"\n" +
+                "                ]\n" +
+                "            },\n" +
                 "      \"Resource\": [\n" +
                 "        \"arn:aws:s3:::"+bucketName+"/*\"\n" +
                 "      ]\n" +
