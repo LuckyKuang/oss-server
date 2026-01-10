@@ -43,6 +43,13 @@ public class DefaultExceptionHandler {
      */
     @ExceptionHandler(value = Exception.class)
     public ApiResult<?> defaultExceptionHandler(Exception ex) {
+        // 忽略静态资源不存在的错误（favicon.ico、.well-known等浏览器自动请求）
+        if (ex.getMessage() != null && 
+            (ex.getMessage().contains("No static resource") || 
+             ex.getMessage().contains("favicon.ico") ||
+             ex.getMessage().contains(".well-known"))) {
+            return null;
+        }
         log.error("[defaultExceptionHandler]", ex);
         return ApiResult.failed(ErrorCode.UNKNOWN,ex.getMessage());
     }

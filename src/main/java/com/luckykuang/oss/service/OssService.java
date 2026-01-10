@@ -17,9 +17,7 @@
 package com.luckykuang.oss.service;
 
 import com.luckykuang.oss.base.ApiResult;
-import com.luckykuang.oss.vo.BucketPolicyVO;
-import com.luckykuang.oss.vo.BucketVO;
-import com.luckykuang.oss.vo.UploadFileVO;
+import com.luckykuang.oss.vo.*;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -123,4 +121,42 @@ public interface OssService {
      * @param length     每次读取的长度 - 如果为空则代表读到文件结尾
      */
     void downloadFileChunk(String bucketName,String objectName,Long offset,Long length,HttpServletResponse response);
+
+    /**
+     * 初始化分片上传
+     * @param chunkUploadInitVO 入参对象
+     * @return 分片上传状态信息
+     */
+    ApiResult<ChunkUploadStatusVO> initChunkUpload(ChunkUploadInitVO chunkUploadInitVO);
+
+    /**
+     * 上传分片文件
+     * @param chunkUploadVO 入参对象
+     * @return 上传结果
+     */
+    ApiResult<String> uploadChunk(ChunkUploadVO chunkUploadVO);
+
+    /**
+     * 合并分片文件
+     * @param chunkUploadCompleteVO 入参对象
+     * @return 合并后的文件URL
+     */
+    ApiResult<String> completeChunkUpload(ChunkUploadCompleteVO chunkUploadCompleteVO);
+
+    /**
+     * 查询分片上传状态
+     * @param fileMd5 文件MD5
+     * @param bucketName 存储桶名称
+     * @return 分片上传状态信息
+     */
+    ApiResult<ChunkUploadStatusVO> getChunkUploadStatus(String fileMd5, String bucketName);
+
+    /**
+     * 取消分片上传
+     * @param fileMd5 文件MD5
+     * @param bucketName 存储桶名称
+     * @param uploadSessionId 上传会话ID（可选，用于精确删除特定会话的文件）
+     * @return 取消结果
+     */
+    ApiResult<String> cancelChunkUpload(String fileMd5, String bucketName, String uploadSessionId);
 }

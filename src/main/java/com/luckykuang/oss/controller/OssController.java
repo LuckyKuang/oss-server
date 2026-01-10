@@ -18,9 +18,7 @@ package com.luckykuang.oss.controller;
 
 import com.luckykuang.oss.base.ApiResult;
 import com.luckykuang.oss.service.OssService;
-import com.luckykuang.oss.vo.BucketPolicyVO;
-import com.luckykuang.oss.vo.BucketVO;
-import com.luckykuang.oss.vo.UploadFileVO;
+import com.luckykuang.oss.vo.*;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -160,5 +158,61 @@ public class OssController {
     public void downloadFileChunk(@NotBlank String bucketName, @NotBlank String objectName, @NotNull Long offset,
                                   @RequestParam(required = false) Long length, HttpServletResponse response){
         ossService.downloadFileChunk(bucketName,objectName,offset,length,response);
+    }
+
+    @Operation(summary = "初始化分片上传", description = "初始化分片上传，检查并返回已上传的分片状态")
+    @PostMapping(value = "initChunkUpload", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ApiResult<ChunkUploadStatusVO> initChunkUpload(@RequestBody @Validated ChunkUploadInitVO chunkUploadInitVO){
+        return ossService.initChunkUpload(chunkUploadInitVO);
+    }
+
+    @Operation(summary = "上传文件分片", description = "上传文件分片")
+    @PostMapping(value = "uploadChunk", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResult<String> uploadChunk(@RequestParam @NotBlank String fileName,
+                                          @RequestParam @NotBlank String fileMd5,
+                                          @RequestParam @NotBlank String uploadSessionId,
+                                          @RequestParam @NotNull Integer chunkNumber,
+                                          @RequestParam @NotNull Integer totalChunks,
+                                          @RequestParam @NotNull Long chunkSize,
+                                          @RequestParam @NotNull Long totalSize,
+                                          @RequestParam @NotNull MultipartFile file){
+        ChunkUploadVO chunkUploadVO = new ChunkUploadVO();
+        chunkUploadVO.setFileName(fileName);
+        chunkUploadVO.setFileMd5(fileMd5);
+        chunkUploadVO.setUploadSessionId(uploadSessionId);
+        chunkUploadVO.setChunkNumber(chunkNumber);
+        chunkUploadVO.setTotalChunks(totalChunks);
+        chunkUploadVO.setChunkSize(chunkSize);
+        chunkUploadVO.setTotalSize(totalSize);
+        chunkUploadVO.setFile(file);
+        return ossService.uploadChunk(chunkUploadVO);
+    }
+
+    @Operation(summary = "完成分片上传", description = "合并所有分片文件并完成上传")
+    @PostMapping(value = "completeChunkUpload", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ApiResult<String> completeChunkUpload(@RequestBody @Validated ChunkUploadCompleteVO chunkUploadCompleteVO){
+        return ossService.completeChunkUpload(chunkUploadCompleteVO);
+    }
+
+    @Operation(summary = "查询分片上传状态", description = "查询文件分片上传进度状态", parameters = {
+            @Parameter(name = "fileMd5",description = "文件MD5"),
+            @Parameter(name = "bucketName",description = "存储桶名称")
+    })
+    @GetMapping("getChunkUploadStatus")
+    public ApiResult<ChunkUploadStatusVO> getChunkUploadStatus(@NotBlank String fileMd5,
+                                                                 @RequestParam(required = false) String bucketName){
+        return ossService.getChunkUploadStatus(fileMd5, bucketName);
+    }
+
+    @Operation(summary = "取消分片上传", description = "取消分片上传并删除已上传的分片", parameters = {
+            @Parameter(name = "fileMd5",description = "文件MD5"),
+            @Parameter(name = "bucketName",description = "存储桶名称"),
+            @Parameter(name = "uploadSessionId",description = "上传会话ID")
+    })
+    @DeleteMapping("cancelChunkUpload")
+    public ApiResult<String> cancelChunkUpload(@NotBlank String fileMd5,
+                                               @RequestParam(required = false) String bucketName,
+                                               @RequestParam(required = false) String uploadSessionId){
+        return ossService.cancelChunkUpload(fileMd5, bucketName, uploadSessionId);
     }
 }
