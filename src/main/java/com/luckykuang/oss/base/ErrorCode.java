@@ -31,6 +31,7 @@ public enum ErrorCode {
     NOT_UPLOAD_EMPTY_EXT("1005","禁止上传无后缀的文件"),
     NOT_UPLOAD_EMPTY_TYPE("1006","禁止上传无文件类型的文件"),
     FILE_PATH_INCORRECT("1007","文件路径有误"),
+    INVALID_PARAMETER("1008","参数错误"),
     ;
     private final String code;
     private final String message;

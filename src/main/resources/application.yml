@@ -9,7 +9,9 @@ spring:
       max-request-size: 100MB
 minio:
   # API 端点
-  endpoint: "http://192.168.1.100:9000/"
+  endpoint: "http://192.168.1.100:9000"
+  # API 端点(CDN)
+  endpoint-cdn: "https://oss.simple.com/"
   # 默认 Bucket 存储桶名称
   bucketName: public
   # Access Key

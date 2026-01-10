@@ -34,6 +34,9 @@ public class OssProperties {
     // API 端点
     private String endpoint;
 
+    // API 端点(CDN)
+    private String endpointCdn;
+
     // 默认 Bucket 存储桶名称
     private String bucketName;
 
