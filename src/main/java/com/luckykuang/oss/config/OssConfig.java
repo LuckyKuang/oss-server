@@ -29,14 +29,27 @@ import org.springframework.stereotype.Component;
 public class OssConfig {
 
     /**
-     * 实例化客户端
+     * 实例化客户端（使用 MinIO 原始 endpoint）
      * @param ossProperties 配置加载类
      * @return minio 客户端
      */
-    @Bean
+    @Bean(name = "minioClient")
     public MinioClient minioClient(OssProperties ossProperties){
         return MinioClient.builder()
                 .endpoint(ossProperties.getEndpoint())
+                .credentials(ossProperties.getAccessKey(), ossProperties.getSecretKey())
+                .build();
+    }
+
+    /**
+     * 实例化客户端（使用 CDN endpoint）- 用于生成 presigned URL
+     * @param ossProperties 配置加载类
+     * @return minio 客户端
+     */
+    @Bean(name = "minioCdnClient")
+    public MinioClient minioCdnClient(OssProperties ossProperties){
+        return MinioClient.builder()
+                .endpoint(ossProperties.getEndpointCdn())
                 .credentials(ossProperties.getAccessKey(), ossProperties.getSecretKey())
                 .build();
     }

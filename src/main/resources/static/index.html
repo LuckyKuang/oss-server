@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OSS 文件管理系统</title>
+    <link rel="stylesheet" href="css/index.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🗄️ OSS 文件管理系统</h1>
+            <div class="header-right">
+                <button class="theme-toggle" onclick="toggleTheme()" title="切换主题">
+                    <span id="themeIcon">🌙</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="tabs">
+            <button class="tab active" data-tab="buckets">存储桶管理</button>
+            <button class="tab" data-tab="policies">策略模板管理</button>
+        </div>
+
+        <!-- 存储桶管理 -->
+        <div class="tab-content active" id="buckets-tab">
+            <div class="toolbar">
+                <button class="btn btn-primary" onclick="refreshBuckets()" id="refreshBucketsBtn">
+                    <span>🔄</span> 刷新
+                </button>
+                <button class="btn btn-success" onclick="showCreateBucketModal()">
+                    <span>➕</span> 新建存储桶
+                </button>
+            </div>
+
+            <div class="bucket-list" id="bucketList">
+                <div class="empty-state">
+                    <div class="empty-state-icon">🗄️</div>
+                    点击刷新按钮加载存储桶列表
+                </div>
+            </div>
+        </div>
+
+        <!-- 存储桶文件列表 -->
+        <div class="tab-content" id="bucketFiles-tab">
+            <div class="toolbar">
+                <button class="btn btn-secondary" onclick="backToBuckets()">
+                    <span>⬅️</span> 返回存储桶列表
+                </button>
+                <button class="btn btn-primary" onclick="refreshFiles()" id="refreshFilesBtn">
+                    <span>🔄</span> 刷新
+                </button>
+                <button class="btn btn-success" onclick="showUploadModal()">
+                    <span>📤</span> 上传文件
+                </button>
+                <button class="btn btn-secondary" onclick="showBucketPolicyModal()">
+                    <span>📋</span> 存储桶策略
+                </button>
+                <button class="btn btn-secondary" onclick="showPresignedUrlModal()">
+                    <span>🔗</span> 临时访问链接
+                </button>
+                <button class="btn btn-danger" onclick="deleteBucket()">
+                    <span>🗑️</span> 删除存储桶
+                </button>
+            </div>
+
+            <div style="margin-bottom: 20px; padding: 15px; background: #e3f2fd; border-radius: 8px; border-left: 4px solid #2196f3;">
+                <div>
+                    <strong>当前存储桶：</strong> <span id="currentBucketName" style="font-size: 18px; color: #667eea;"></span>
+                    <span class="policy-badge" id="currentBucketPolicyType" style="margin-left: 15px;"></span>
+                </div>
+            </div>
+
+            <div class="breadcrumb" id="breadcrumb" style="display: none;">
+                <span class="breadcrumb-item" onclick="navigateToRoot()">🏠 根目录</span>
+            </div>
+
+            <div class="file-list" id="fileList">
+                <div class="empty-state">
+                    <div class="empty-state-icon">📁</div>
+                    点击刷新按钮加载文件列表
+                </div>
+            </div>
+        </div>
+
+        <!-- 策略模板管理 -->
+        <div class="tab-content" id="policies-tab">
+            <div class="toolbar">
+                <button class="btn btn-primary" onclick="refreshPolicyTemplates()" id="refreshPoliciesBtn">
+                    <span>🔄</span> 刷新
+                </button>
+                <button class="btn btn-success" onclick="showCreatePolicyTemplateModal()">
+                    <span>➕</span> 新建策略模板
+                </button>
+            </div>
+
+            <div class="policy-template-list" id="policyTemplateList">
+                <div class="empty-state">
+                    <div class="empty-state-icon">📋</div>
+                    点击刷新按钮加载策略模板列表
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 创建存储桶模态框 -->
+    <div class="modal" id="createBucketModal">
+        <div class="modal-content">
+            <div class="modal-title">创建存储桶</div>
+            <div class="form-group">
+                <label>存储桶名称</label>
+                <input type="text" class="form-control" id="newBucketName" placeholder="请输入存储桶名称">
+            </div>
+            <div class="form-group">
+                <label>选择策略模板</label>
+                <select class="form-control" id="newBucketPolicyTemplate">
+                    <option value="">选择策略模板...</option>
+                </select>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal('createBucketModal')">取消</button>
+                <button class="btn btn-primary" onclick="confirmCreateBucket()">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 上传文件模态框 -->
+    <div class="modal" id="uploadModal">
+        <div class="modal-content xl">
+            <div class="modal-title">上传文件</div>
+
+            <div class="tabs-section">
+                <button class="active" onclick="switchUploadTab('normal')">普通上传</button>
+                <button onclick="switchUploadTab('chunk')">分片上传</button>
+            </div>
+
+            <!-- 普通上传 -->
+            <div class="upload-section active" id="normalUpload">
+                <div class="upload-area" id="normalUploadArea" onclick="document.getElementById('fileInput').click()">
+                    <div class="upload-icon">📁</div>
+                    <p>点击或拖拽文件到此处上传</p>
+                </div>
+                <input type="file" id="fileInput" style="display: none;" onchange="handleFileSelect(event)">
+
+                <div class="form-group">
+                    <label>目标路径（可选）</label>
+                    <input type="text" class="form-control" id="uploadPath" placeholder="例如: /2025/01/">
+                </div>
+
+                <div class="result-box" id="uploadResult">
+                    <div>✅ 上传成功！</div>
+                    <a href="#" class="result-url" id="fileUrl" target="_blank"></a>
+                </div>
+            </div>
+
+            <!-- 分片上传 -->
+            <div class="chunk-upload-section" id="chunkUpload">
+                <div class="chunk-upload-area" id="chunkUploadArea">
+                    <div class="chunk-upload-icon">📤</div>
+                    <div class="chunk-upload-text">点击或拖拽文件到此处</div>
+                    <div class="chunk-upload-hint">支持任意大小文件，自动分片上传</div>
+                </div>
+
+                <input type="file" id="chunkFileInput" style="display: none;">
+
+                <div class="chunk-file-info" id="chunkFileInfo">
+                    <div class="chunk-file-name" id="chunkFileName"></div>
+                    <div class="chunk-file-size" id="chunkFileSize"></div>
+                    <div class="chunk-file-md5">MD5: <span id="chunkFileMd5">计算中...</span></div>
+                </div>
+
+                <div class="chunk-options">
+                    <div class="chunk-option-group">
+                        <div class="chunk-option-label">分片大小 (MB, 最小5MB)</div>
+                        <input type="number" class="chunk-option-input" id="chunkSize" value="5" min="5" max="100">
+                        <div class="error-message" id="chunkSizeError" style="display: none; color: #e74c3c; font-size: 12px; margin-top: 4px;">分片大小不能低于 5MB</div>
+                    </div>
+                    <div class="chunk-option-group">
+                        <div class="chunk-option-label">存储桶名称</div>
+                        <input type="text" class="chunk-option-input" id="chunkBucketName" placeholder="默认: public">
+                    </div>
+                    <div class="chunk-option-group">
+                        <div class="chunk-option-label">并发上传数</div>
+                        <input type="number" class="chunk-option-input" id="chunkConcurrency" value="3" min="1" max="10">
+                    </div>
+                </div>
+
+                <div class="chunk-btn-group">
+                    <button class="btn btn-primary" id="chunkStartBtn" disabled>开始上传</button>
+                    <button class="btn btn-secondary" id="chunkPauseBtn" disabled>暂停上传</button>
+                    <button class="btn btn-secondary" id="chunkCancelBtn" disabled>取消上传</button>
+                    <button class="btn btn-secondary" id="chunkRetryBtn" disabled>重试失败</button>
+                </div>
+
+                <div class="chunk-progress-container" id="chunkProgressContainer">
+                    <div class="chunk-progress-info">
+                        <span id="chunkProgressText">0 / 0 分片</span>
+                        <span id="chunkProgressPercent">0%</span>
+                    </div>
+                    <div class="chunk-progress-bar">
+                        <div class="chunk-progress-fill" id="chunkProgressFill"></div>
+                        <div class="chunk-progress-status" id="chunkProgressStatus">0%</div>
+                    </div>
+                    <div class="chunk-speed-info">
+                        <span id="chunkUploadSpeed">速度: 0 KB/s</span>
+                        <span id="chunkUploadTime">用时: 00:00</span>
+                    </div>
+                    <div class="chunk-list" id="chunkList"></div>
+                </div>
+
+                <div class="chunk-result" id="chunkResult">
+                    <div class="chunk-result-title">✅ 上传成功</div>
+                    <div class="chunk-result-url">文件URL: <a id="chunkFileUrl" href="#" target="_blank"></a></div>
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal('uploadModal')">关闭</button>
+                <button class="btn btn-primary" id="uploadBtn" onclick="uploadFile()">开始上传</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 临时访问链接模态框 -->
+    <div class="modal" id="presignedUrlModal">
+        <div class="modal-content large">
+            <div class="modal-title">生成临时访问链接</div>
+            <div class="form-group">
+                <label>文件路径</label>
+                <input type="text" class="form-control" id="presignedFilePath" placeholder="例如: /2025/01/file.jpg">
+            </div>
+            <div class="form-group">
+                <label>过期时间（秒）</label>
+                <input type="number" class="form-control" id="presignedExpiry" value="3600" min="60" max="604800">
+                <small style="color: #999; display: block; margin-top: 5px;">最小 60 秒，最大 7 天（604800 秒）</small>
+            </div>
+            <div class="form-group">
+                <label>生成的访问链接</label>
+                <textarea class="form-control" id="presignedUrlResult" readonly style="height: 80px; background: var(--bg-tertiary);"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal('presignedUrlModal')">关闭</button>
+                <button class="btn btn-success" onclick="generatePresignedUrl()">生成链接</button>
+                <button class="btn btn-primary" onclick="copyPresignedUrl()">复制链接</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 存储桶策略模态框 -->
+    <div class="modal" id="bucketPolicyModal">
+        <div class="modal-content large">
+            <div class="modal-title">存储桶策略管理</div>
+            <div class="form-group">
+                <label>当前策略内容</label>
+                <textarea class="form-control" id="bucketPolicyContent" placeholder="策略JSON内容..."></textarea>
+            </div>
+            <div class="form-group">
+                <label>快速设置策略</label>
+                <div class="policy-type-selector">
+                    <div class="policy-type-option" data-type="public" onclick="selectPolicyType('public')">
+                        <div style="font-size: 24px;">🌐</div>
+                        <div>公有访问</div>
+                    </div>
+                    <div class="policy-type-option" data-type="readonly" onclick="selectPolicyType('readonly')">
+                        <div style="font-size: 24px;">📖</div>
+                        <div>只读访问</div>
+                    </div>
+                    <div class="policy-type-option" data-type="private" onclick="selectPolicyType('private')">
+                        <div style="font-size: 24px;">🔒</div>
+                        <div>私有访问</div>
+                    </div>
+                    <div class="policy-type-option" data-type="custom" onclick="selectPolicyType('custom')">
+                        <div style="font-size: 24px;">✏️</div>
+                        <div>自定义策略</div>
+                    </div>
+                </div>
+            </div>
+            <div class="form-group" id="customTemplateGroup" style="display: none;">
+                <label>从策略模板中选择</label>
+                <select class="form-control" id="customPolicyTemplate" onchange="applyTemplateToPolicy()">
+                    <option value="">选择策略模板...</option>
+                </select>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal('bucketPolicyModal')">取消</button>
+                <button class="btn btn-primary" onclick="saveBucketPolicy()">保存策略</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 创建策略模板模态框 -->
+    <div class="modal" id="createPolicyTemplateModal">
+        <div class="modal-content large">
+            <div class="modal-title">创建策略模板</div>
+            <div class="form-group">
+                <label>模板名称</label>
+                <input type="text" class="form-control" id="policyTemplateName" placeholder="请输入模板名称">
+            </div>
+            <div class="form-group">
+                <label>模板描述</label>
+                <input type="text" class="form-control" id="policyTemplateDesc" placeholder="请输入模板描述">
+            </div>
+            <div class="form-group">
+                <label>策略类型</label>
+                <div class="policy-type-selector">
+                    <div class="policy-type-option" data-type="public" onclick="selectTemplatePolicyType('public')">
+                        <div>🌐 公有</div>
+                    </div>
+                    <div class="policy-type-option" data-type="readonly" onclick="selectTemplatePolicyType('readonly')">
+                        <div>📖 只读</div>
+                    </div>
+                    <div class="policy-type-option" data-type="private" onclick="selectTemplatePolicyType('private')">
+                        <div>🔒 私有</div>
+                    </div>
+                    <div class="policy-type-option" data-type="custom" onclick="selectTemplatePolicyType('custom')">
+                        <div>✏️ 自定义</div>
+                    </div>
+                </div>
+            </div>
+            <div class="form-group" id="templateCustomPolicyGroup" style="display: none;">
+                <label>策略内容（JSON格式）</label>
+                <textarea class="form-control" id="templateCustomPolicy" placeholder='{"Version":"2012-10-17","Statement":[]}'></textarea>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal('createPolicyTemplateModal')">取消</button>
+                <button class="btn btn-primary" onclick="confirmCreatePolicyTemplate()">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑策略模板模态框 -->
+    <div class="modal" id="editPolicyTemplateModal">
+        <div class="modal-content large">
+            <div class="modal-title">编辑策略模板</div>
+            <div class="form-group">
+                <label>模板名称</label>
+                <input type="text" class="form-control" id="editPolicyTemplateName" placeholder="请输入模板名称" disabled>
+            </div>
+            <div class="form-group">
+                <label>模板描述</label>
+                <input type="text" class="form-control" id="editPolicyTemplateDesc" placeholder="请输入模板描述">
+            </div>
+            <div class="form-group">
+                <label>策略内容（JSON格式）</label>
+                <textarea class="form-control" id="editPolicyTemplatePolicy" placeholder='策略JSON内容...'></textarea>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal('editPolicyTemplateModal')">取消</button>
+                <button class="btn btn-primary" onclick="confirmEditPolicyTemplate()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/spark-md5@3.0.2/spark-md5.min.js"></script>
+    <script src="js/index.js"></script>
+    <script src="js/chunk-upload.js"></script>
+</body>
+</html>

@@ -59,8 +59,11 @@ public class OssServiceImpl implements OssService {
     // 日期格式化
     private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("/yyyy/MM/dd/");
 
-    @Resource
+    @Resource(name = "minioClient")
     private MinioClient minioClient;
+
+    @Resource(name = "minioCdnClient")
+    private MinioClient minioCdnClient;
 
     @Resource
     private OssProperties ossProperties;
@@ -319,12 +322,20 @@ public class OssServiceImpl implements OssService {
 
     @Override
     public List<String> listFilesByBucketName(String bucketName,String prefix,Integer size) {
+        // 处理前缀：如果是空字符串，设置为null
+        String effectivePrefix = StringUtils.isBlank(prefix) ? null : prefix;
+        if (effectivePrefix != null && !effectivePrefix.endsWith("/")) {
+            effectivePrefix = effectivePrefix + "/";
+        }
+
+        log.info("查询文件列表 - 存储桶: {}, 前缀: {}", bucketName, effectivePrefix);
+
         ListObjectsArgs args = ListObjectsArgs.builder()
                 .bucket(bucketName)
                 // 前缀
-                .prefix(prefix)
-                // 递归查找
-                .recursive(true)
+                .prefix(effectivePrefix)
+                // 不递归，只返回直接子项
+                .recursive(false)
                 // 避免性能问题，暂时最多查询100条数据
                 .maxKeys(size > 100 ? 100 : size)
                 .build();
@@ -333,12 +344,38 @@ public class OssServiceImpl implements OssService {
         try {
             for (Result<Item> result : results) {
                 Item item = result.get();
-                files.add(bucketName + "/" + item.objectName());
+                String objectName = item.objectName();
+
+                // 跳过前缀本身
+                if (effectivePrefix != null && effectivePrefix.equals(objectName)) {
+                    log.info("跳过前缀本身: {}", objectName);
+                    continue;
+                }
+
+                // 判断是否为文件夹（以/结尾）
+                boolean isFolder = objectName.endsWith("/");
+
+                // 移除前缀，获取相对路径用于过滤
+                String relativePath = effectivePrefix != null ?
+                        objectName.substring(effectivePrefix.length()) : objectName;
+
+                // 过滤出直接子项：相对路径中不应该再包含斜杠（文件夹除外）
+                if (!isFolder && relativePath.contains("/")) {
+                    log.info("跳过深层文件: {}", objectName);
+                    continue;
+                }
+
+                // 返回完整路径（带前缀），方便前端处理
+                files.add(objectName);
+
+                log.debug("添加文件: {} (文件夹: {})", objectName, isFolder);
             }
         } catch (Exception e){
             log.error("查询文件列表异常",e);
             throw new BusinessException(ErrorCode.UNKNOWN);
         }
+
+        log.info("查询完成，返回 {} 个文件", files.size());
         return files;
     }
 
@@ -376,15 +413,21 @@ public class OssServiceImpl implements OssService {
     }
 
     @Override
-    public String getPresignedObjectUrl(String bucketName,String objectName) {
+    public String getPresignedObjectUrl(String bucketName, String objectName, Integer expirySeconds) {
+        // 如果未指定过期时间，默认为1小时（3600秒）
+        int expiry = (expirySeconds != null && expirySeconds > 0) ? expirySeconds : 3600;
+
         GetPresignedObjectUrlArgs args = GetPresignedObjectUrlArgs.builder()
                 .bucket(bucketName)
                 .object(objectName)
-                // 失效时间设置为1天，不设置默认是7天
-                .expiry(1, TimeUnit.DAYS)
+                .method(io.minio.http.Method.GET)
+                .expiry(expiry, TimeUnit.SECONDS)
                 .build();
         try {
-            return minioClient.getPresignedObjectUrl(args);
+            // 使用 CDN 客户端生成 presigned URL，这样访问时会通过 CDN
+            String presignedUrl = minioCdnClient.getPresignedObjectUrl(args);
+            log.info("生成的 presigned URL: {}", presignedUrl);
+            return presignedUrl;
         } catch (Exception e){
             log.error("生成临时访问url异常",e);
             throw new BusinessException(ErrorCode.UNKNOWN);
@@ -786,5 +829,186 @@ public class OssServiceImpl implements OssService {
             log.error("取消分片上传异常", e);
             throw new BusinessException(ErrorCode.UNKNOWN);
         }
+    }
+
+    // ==================== 策略模板管理 ====================
+
+    // 使用内存存储策略模板（生产环境应使用数据库）
+    private static final java.util.Map<String, PolicyTemplateVO> policyTemplateMap = new java.util.concurrent.ConcurrentHashMap<>();
+
+    // 预定义的策略
+    private static final String PUBLIC_POLICY = "{\n" +
+            "  \"Version\": \"2012-10-17\",\n" +
+            "  \"Statement\": [\n" +
+            "    {\n" +
+            "      \"Effect\": \"Allow\",\n" +
+            "      \"Principal\": {\"AWS\": [\"*\"]},\n" +
+            "      \"Action\": [\"s3:GetBucketLocation\", \"s3:ListBucket\", \"s3:ListBucketMultipartUploads\"],\n" +
+            "      \"Resource\": [\"arn:aws:s3:::{bucket}\"]\n" +
+            "    },\n" +
+            "    {\n" +
+            "      \"Effect\": \"Allow\",\n" +
+            "      \"Principal\": {\"AWS\": [\"*\"]},\n" +
+            "      \"Action\": [\"s3:GetObject\", \"s3:ListMultipartUploadParts\", \"s3:PutObject\", \"s3:AbortMultipartUpload\", \"s3:DeleteObject\"],\n" +
+            "      \"Resource\": [\"arn:aws:s3:::{bucket}/*\"]\n" +
+            "    }\n" +
+            "  ]\n" +
+            "}";
+
+    private static final String READONLY_POLICY = "{\n" +
+            "  \"Version\": \"2012-10-17\",\n" +
+            "  \"Statement\": [\n" +
+            "    {\n" +
+            "      \"Effect\": \"Allow\",\n" +
+            "      \"Principal\": {\"AWS\": [\"*\"]},\n" +
+            "      \"Action\": [\"s3:GetObject\"],\n" +
+            "      \"Resource\": [\"arn:aws:s3:::{bucket}/*\"]\n" +
+            "    }\n" +
+            "  ]\n" +
+            "}";
+
+    private static final String PRIVATE_POLICY = "{\n" +
+            "  \"Version\": \"2012-10-17\",\n" +
+            "  \"Statement\": []\n" +
+            "}";
+
+    static {
+        // 初始化默认策略模板
+        long now = System.currentTimeMillis();
+        PolicyTemplateVO publicTemplate = new PolicyTemplateVO();
+        publicTemplate.setTemplateName("public");
+        publicTemplate.setDescription("公有访问策略 - 允许匿名读写删除");
+        publicTemplate.setPolicyType("public");
+        publicTemplate.setPolicy(PUBLIC_POLICY);
+        publicTemplate.setCreateTime(now);
+        publicTemplate.setUpdateTime(now);
+        policyTemplateMap.put("public", publicTemplate);
+
+        PolicyTemplateVO readonlyTemplate = new PolicyTemplateVO();
+        readonlyTemplate.setTemplateName("readonly");
+        readonlyTemplate.setDescription("只读访问策略 - 允许匿名读取");
+        readonlyTemplate.setPolicyType("readonly");
+        readonlyTemplate.setPolicy(READONLY_POLICY);
+        readonlyTemplate.setCreateTime(now);
+        readonlyTemplate.setUpdateTime(now);
+        policyTemplateMap.put("readonly", readonlyTemplate);
+
+        PolicyTemplateVO privateTemplate = new PolicyTemplateVO();
+        privateTemplate.setTemplateName("private");
+        privateTemplate.setDescription("私有访问策略 - 禁止匿名访问");
+        privateTemplate.setPolicyType("private");
+        privateTemplate.setPolicy(PRIVATE_POLICY);
+        privateTemplate.setCreateTime(now);
+        privateTemplate.setUpdateTime(now);
+        policyTemplateMap.put("private", privateTemplate);
+    }
+
+    @Override
+    public ApiResult<String> createPolicyTemplate(PolicyTemplateVO policyTemplateVO) {
+        if (policyTemplateMap.containsKey(policyTemplateVO.getTemplateName())) {
+            return ApiResult.failed("001", "策略模板名称已存在");
+        }
+
+        policyTemplateVO.setCreateTime(System.currentTimeMillis());
+        policyTemplateVO.setUpdateTime(System.currentTimeMillis());
+
+        // 根据类型生成默认策略
+        String policyType = policyTemplateVO.getPolicyType();
+        if ("public".equals(policyType)) {
+            policyTemplateVO.setPolicy(PUBLIC_POLICY);
+        } else if ("readonly".equals(policyType)) {
+            policyTemplateVO.setPolicy(READONLY_POLICY);
+        } else if ("private".equals(policyType)) {
+            policyTemplateVO.setPolicy(PRIVATE_POLICY);
+        } else if ("custom".equals(policyType)) {
+            if (StringUtils.isBlank(policyTemplateVO.getPolicy())) {
+                return ApiResult.failed("002", "自定义策略类型必须提供策略内容");
+            }
+        } else {
+            return ApiResult.failed("003", "无效的策略类型");
+        }
+
+        policyTemplateMap.put(policyTemplateVO.getTemplateName(), policyTemplateVO);
+        log.info("创建策略模板成功: {}", policyTemplateVO.getTemplateName());
+        return ApiResult.success();
+    }
+
+    @Override
+    public ApiResult<List<PolicyTemplateVO>> listPolicyTemplates() {
+        return ApiResult.success(new ArrayList<>(policyTemplateMap.values()));
+    }
+
+    @Override
+    public ApiResult<PolicyTemplateVO> getPolicyTemplate(String templateName) {
+        PolicyTemplateVO template = policyTemplateMap.get(templateName);
+        if (template == null) {
+            return ApiResult.failed("004", "策略模板不存在");
+        }
+        return ApiResult.success(template);
+    }
+
+    @Override
+    public ApiResult<String> updatePolicyTemplate(PolicyTemplateVO policyTemplateVO) {
+        PolicyTemplateVO existing = policyTemplateMap.get(policyTemplateVO.getTemplateName());
+        if (existing == null) {
+            return ApiResult.failed("005", "策略模板不存在");
+        }
+
+        // 如果更新的是内置模板，不允许修改模板名称和类型
+        if (isBuiltInTemplate(policyTemplateVO.getTemplateName())) {
+            if (!existing.getPolicyType().equals(policyTemplateVO.getPolicyType())) {
+                return ApiResult.failed("006", "不允许修改内置模板的策略类型");
+            }
+        }
+
+        policyTemplateVO.setCreateTime(existing.getCreateTime());
+        policyTemplateVO.setUpdateTime(System.currentTimeMillis());
+        policyTemplateMap.put(policyTemplateVO.getTemplateName(), policyTemplateVO);
+
+        log.info("更新策略模板成功: {}", policyTemplateVO.getTemplateName());
+        return ApiResult.success();
+    }
+
+    @Override
+    public ApiResult<String> deletePolicyTemplate(String templateName) {
+        if (!policyTemplateMap.containsKey(templateName)) {
+            return ApiResult.failed("007", "策略模板不存在");
+        }
+
+        if (isBuiltInTemplate(templateName)) {
+            return ApiResult.failed("008", "不允许删除内置策略模板");
+        }
+
+        policyTemplateMap.remove(templateName);
+        log.info("删除策略模板成功: {}", templateName);
+        return ApiResult.success();
+    }
+
+    @Override
+    public ApiResult<String> applyPolicyTemplate(String bucketName, String templateName) {
+        PolicyTemplateVO template = policyTemplateMap.get(templateName);
+        if (template == null) {
+            return ApiResult.failed("009", "策略模板不存在");
+        }
+
+        try {
+            String policy = template.getPolicy().replace("{bucket}", bucketName);
+            SetBucketPolicyArgs args = SetBucketPolicyArgs.builder()
+                    .bucket(bucketName)
+                    .config(policy)
+                    .build();
+            minioClient.setBucketPolicy(args);
+            log.info("应用策略模板成功 - 存储桶: {}, 模板: {}", bucketName, templateName);
+            return ApiResult.success();
+        } catch (Exception e) {
+            log.error("应用策略模板失败", e);
+            throw new BusinessException(ErrorCode.UNKNOWN);
+        }
+    }
+
+    private boolean isBuiltInTemplate(String templateName) {
+        return "public".equals(templateName) ||
+               "readonly".equals(templateName) ||
+               "private".equals(templateName);
     }
 }
