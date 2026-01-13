@@ -39,7 +39,7 @@ import java.util.List;
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class OssProcessor {
 
-    private static final MinioClient minioClient = ApplicationContextUtils.getBean(MinioClient.class);
+    private static final MinioClient minioClient = ApplicationContextUtils.getBean("minioClient", MinioClient.class);
 
     /**
      * 判断存储桶是否存在
@@ -103,22 +103,15 @@ public final class OssProcessor {
                 "  \"Statement\": [\n" +
                 "    {\n" +
                 "      \"Effect\": \"Allow\",\n" +
-                "      \"Action\": [\n" +
-                "                \"s3:ListAllMyBuckets\",\n" +
-                "                \"s3:ListBucket\",\n" +
-                "                \"s3:GetBucketLocation\",\n" +
-                "                \"s3:GetObject\",\n" +
-                "                \"s3:PutObject\",\n" +
-                "                \"s3:DeleteObject\"\n" +
-                "      ],\n" +
-                "      \"Principal\":{\n" +
-                "                \"AWS\": [\n" +
-                "                    \"*\"\n" +
-                "                ]\n" +
-                "            },\n" +
-                "      \"Resource\": [\n" +
-                "        \"arn:aws:s3:::"+bucketName+"/*\"\n" +
-                "      ]\n" +
+                "      \"Principal\": {\"AWS\": [\"*\"]},\n" +
+                "      \"Action\": [\"s3:GetBucketLocation\", \"s3:ListBucket\", \"s3:ListBucketMultipartUploads\"],\n" +
+                "      \"Resource\": [\"arn:aws:s3:::"+bucketName+"\"]\n" +
+                "    },\n" +
+                "    {\n" +
+                "      \"Effect\": \"Allow\",\n" +
+                "      \"Principal\": {\"AWS\": [\"*\"]},\n" +
+                "      \"Action\": [\"s3:GetObject\", \"s3:ListMultipartUploadParts\", \"s3:PutObject\", \"s3:AbortMultipartUpload\", \"s3:DeleteObject\"],\n" +
+                "      \"Resource\": [\"arn:aws:s3:::"+bucketName+"/*\"]\n" +
                 "    }\n" +
                 "  ]\n" +
                 "}";
@@ -127,38 +120,22 @@ public final class OssProcessor {
     /**
      * 存储桶自定义策略
      * @param bucketName
+     * @param bucketPolicyList 策略列表（包含完整的 policy JSON 字符串）
      * @return
      */
     public static String customBucketPolicy(String bucketName, List<String> bucketPolicyList){
-        StringBuilder rule = new StringBuilder();
-        for (int i = 0; i < bucketPolicyList.size(); i++) {
-            rule.append("\"");
-            rule.append(bucketPolicyList.get(i));
-            if (i == bucketPolicyList.size() - 1){
-                rule.append("\"\n");
-                break;
-            }
-            rule.append("\",\n");
+        if (bucketPolicyList == null || bucketPolicyList.isEmpty()) {
+            return readOnlyBucketPolicy(bucketName);
         }
-        return  "{\n" +
-                "  \"Version\": \"2012-10-17\",\n" +
-                "  \"Statement\": [\n" +
-                "    {\n" +
-                "      \"Effect\": \"Allow\",\n" +
-                "      \"Action\": [\n" +
-                rule +
-                "      ],\n" +
-                "      \"Principal\":{\n" +
-                "                \"AWS\": [\n" +
-                "                    \"*\"\n" +
-                "                ]\n" +
-                "            },\n" +
-                "      \"Resource\": [\n" +
-                "        \"arn:aws:s3:::"+bucketName+"/*\"\n" +
-                "      ]\n" +
-                "    }\n" +
-                "  ]\n" +
-                "}";
+        
+        // 直接使用前端传来的完整 policy JSON 字符串，替换其中的 {bucket} 占位符
+        String policy = bucketPolicyList.getFirst();
+        if (policy != null) {
+            // 替换 policy 中的 {bucket} 占位符为实际的 bucketName
+            return policy.replace("{bucket}", bucketName);
+        }
+        
+        return readOnlyBucketPolicy(bucketName);
     }
 
     /**

@@ -101,8 +101,9 @@ public interface OssService {
      * 生成临时访问url - 用于私有存储桶生成临时查看权限
      * @param bucketName 存储桶名称
      * @param objectName url
+     * @param expirySeconds 过期时间（秒）
      */
-    String getPresignedObjectUrl(String bucketName,String objectName);
+    String getPresignedObjectUrl(String bucketName, String objectName, Integer expirySeconds);
 
     /**
      * 根据指定步长，得到文件被分片的数量
@@ -159,4 +160,46 @@ public interface OssService {
      * @return 取消结果
      */
     ApiResult<String> cancelChunkUpload(String fileMd5, String bucketName, String uploadSessionId);
+
+    /**
+     * 创建策略模板
+     * @param policyTemplateVO 策略模板对象
+     * @return 创建结果
+     */
+    ApiResult<String> createPolicyTemplate(PolicyTemplateVO policyTemplateVO);
+
+    /**
+     * 查询策略模板列表
+     * @return 策略模板列表
+     */
+    ApiResult<java.util.List<PolicyTemplateVO>> listPolicyTemplates();
+
+    /**
+     * 获取策略模板详情
+     * @param templateName 模板名称
+     * @return 策略模板详情
+     */
+    ApiResult<PolicyTemplateVO> getPolicyTemplate(String templateName);
+
+    /**
+     * 更新策略模板
+     * @param policyTemplateVO 策略模板对象
+     * @return 更新结果
+     */
+    ApiResult<String> updatePolicyTemplate(PolicyTemplateVO policyTemplateVO);
+
+    /**
+     * 删除策略模板
+     * @param templateName 模板名称
+     * @return 删除结果
+     */
+    ApiResult<String> deletePolicyTemplate(String templateName);
+
+    /**
+     * 应用策略模板到存储桶
+     * @param bucketName 存储桶名称
+     * @param templateName 模板名称
+     * @return 应用结果
+     */
+    ApiResult<String> applyPolicyTemplate(String bucketName, String templateName);
 }

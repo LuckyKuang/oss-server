@@ -110,9 +110,9 @@ public class OssController {
             @Parameter(name = "size",description = "查询条数 - 最大100条")
     })
     @GetMapping("listFilesByBucketName")
-    public ApiResult<List<String>> listFilesByBucketName(@NotBlank String bucketName,@NotBlank String prefix,
+    public ApiResult<List<String>> listFilesByBucketName(@NotBlank String bucketName, String prefix,
                                                          @NotNull Integer size){
-        return ApiResult.success(ossService.listFilesByBucketName(bucketName,prefix,size));
+        return ApiResult.success(ossService.listFilesByBucketName(bucketName, prefix, size));
     }
 
     @Operation(summary = "设置存储桶策略", description = "设置存储桶策略")
@@ -134,8 +134,9 @@ public class OssController {
             @Parameter(name = "objectName",description = "文件路径")
     })
     @GetMapping("getPresignedObjectUrl")
-    public ApiResult<String> getPresignedObjectUrl(@NotBlank String bucketName,@NotBlank String objectName){
-        return ApiResult.success(ossService.getPresignedObjectUrl(bucketName,objectName));
+    public ApiResult<String> getPresignedObjectUrl(@NotBlank String bucketName,@NotBlank String objectName,
+                                                  @RequestParam(defaultValue = "3600") Integer expirySeconds){
+        return ApiResult.success(ossService.getPresignedObjectUrl(bucketName, objectName, expirySeconds));
     }
 
     @Operation(summary = "获取文件分片数量", description = "根据指定步长，得到文件被分片的数量", parameters = {
@@ -214,5 +215,50 @@ public class OssController {
                                                @RequestParam(required = false) String bucketName,
                                                @RequestParam(required = false) String uploadSessionId){
         return ossService.cancelChunkUpload(fileMd5, bucketName, uploadSessionId);
+    }
+
+    // ==================== 策略模板管理 ====================
+
+    @Operation(summary = "创建策略模板", description = "创建策略模板")
+    @PostMapping(value = "createPolicyTemplate", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ApiResult<String> createPolicyTemplate(@RequestBody @Validated PolicyTemplateVO policyTemplateVO){
+        return ossService.createPolicyTemplate(policyTemplateVO);
+    }
+
+    @Operation(summary = "查询策略模板列表", description = "查询所有策略模板")
+    @GetMapping("listPolicyTemplates")
+    public ApiResult<List<PolicyTemplateVO>> listPolicyTemplates(){
+        return ossService.listPolicyTemplates();
+    }
+
+    @Operation(summary = "获取策略模板详情", description = "根据名称获取策略模板详情", parameters = {
+            @Parameter(name = "templateName", description = "模板名称")
+    })
+    @GetMapping("getPolicyTemplate")
+    public ApiResult<PolicyTemplateVO> getPolicyTemplate(@NotBlank String templateName){
+        return ossService.getPolicyTemplate(templateName);
+    }
+
+    @Operation(summary = "更新策略模板", description = "更新策略模板")
+    @PostMapping(value = "updatePolicyTemplate", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ApiResult<String> updatePolicyTemplate(@RequestBody @Validated PolicyTemplateVO policyTemplateVO){
+        return ossService.updatePolicyTemplate(policyTemplateVO);
+    }
+
+    @Operation(summary = "删除策略模板", description = "删除策略模板", parameters = {
+            @Parameter(name = "templateName", description = "模板名称")
+    })
+    @DeleteMapping("deletePolicyTemplate/{templateName}")
+    public ApiResult<String> deletePolicyTemplate(@PathVariable String templateName){
+        return ossService.deletePolicyTemplate(templateName);
+    }
+
+    @Operation(summary = "应用策略模板到存储桶", description = "应用策略模板到存储桶", parameters = {
+            @Parameter(name = "bucketName", description = "存储桶名称"),
+            @Parameter(name = "templateName", description = "模板名称")
+    })
+    @PostMapping("applyPolicyTemplate")
+    public ApiResult<String> applyPolicyTemplate(@NotBlank String bucketName, @NotBlank String templateName){
+        return ossService.applyPolicyTemplate(bucketName, templateName);
     }
 }

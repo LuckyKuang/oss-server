@@ -32,7 +32,7 @@ public class OssApplication {
     public static void main(String[] args) {
         SpringApplication.run(OssApplication.class,args);
         log.info("Github Url:https://github.com/LuckyKuang/oss-server");
-        log.info("Web Url:http://localhost:9099/chunk-upload.html");
+        log.info("Web Url:http://localhost:9099/index.html");
         log.info("Swagger Url:http://localhost:9099/swagger-ui/index.html#/");
     }
 }
