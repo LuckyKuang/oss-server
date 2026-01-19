@@ -37,4 +37,10 @@ public class ChunkUploadStatusVO {
 
     @Schema(description = "是否已全部上传完成")
     private Boolean isCompleted;
+
+    @Schema(description = "秒传成功时的文件访问路径")
+    private String filePath;
+
+    @Schema(description = "是否为秒传（文件已存在）")
+    private Boolean isInstant;
 }

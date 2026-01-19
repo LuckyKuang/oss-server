@@ -68,6 +68,58 @@ public class OssServiceImpl implements OssService {
     @Resource
     private OssProperties ossProperties;
 
+    /**
+     * 通过文件MD5检查文件是否已存在（用于秒传）
+     * 文件索引统一存储在默认存储桶中，实现跨桶秒传
+     *
+     * @param fileMd5          文件MD5
+     * @param targetBucketName 目标存储桶名称（用于解析索引时作为默认值）
+     * @return 秒传结果
+     */
+    private InstantUploadResult checkFileExistsByMd5(String fileMd5, String targetBucketName) {
+        if (StringUtils.isBlank(fileMd5)) {
+            return new InstantUploadResult(false, null, null, null);
+        }
+
+        // 默认存储桶（用于存储索引）
+        String indexBucketName = ossProperties.getBucketName();
+        String fileIndexPath = FILE_INDEX_PREFIX + indexBucketName + "/" + fileMd5;
+
+        try {
+            // 检查文件索引是否存在
+            StatObjectArgs statArgs = StatObjectArgs.builder()
+                    .bucket(indexBucketName)
+                    .object(fileIndexPath)
+                    .build();
+            minioClient.statObject(statArgs);
+
+            // 文件索引存在，读取文件路径
+            GetObjectArgs getArgs = GetObjectArgs.builder()
+                    .bucket(indexBucketName)
+                    .object(fileIndexPath)
+                    .build();
+            try (InputStream inputStream = minioClient.getObject(getArgs)) {
+                String existingFilePath = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+
+                // 索引中存储的路径格式：bucketName:/filePath
+                String[] parts = existingFilePath.split(":", 2);
+                String existingBucketName = parts.length > 1 ? parts[0] : targetBucketName;
+                String actualFilePath = parts.length > 1 ? parts[1] : parts[0];
+
+                String fileUrl = ossProperties.getEndpointCdn() + existingBucketName + actualFilePath;
+
+                log.info("检查文件索引 - MD5: {}, 原存储桶: {}, 文件路径: {}",
+                        fileMd5, existingBucketName, actualFilePath);
+
+                return new InstantUploadResult(true, existingBucketName, actualFilePath, fileUrl);
+            }
+        } catch (Exception e) {
+            // 文件不存在，继续正常的上传流程
+            log.debug("检查文件索引 - 文件不存在，MD5: {}", fileMd5);
+            return new InstantUploadResult(false, null, null, null);
+        }
+    }
+
     @Override
     public ApiResult<String> createBucket(String bucketName) {
         try {
@@ -86,8 +138,8 @@ public class OssServiceImpl implements OssService {
                     .build();
             // 设置存储桶策略
             minioClient.setBucketPolicy(args3);
-        } catch (Exception e){
-            log.error("存储桶创建异常",e);
+        } catch (Exception e) {
+            log.error("存储桶创建异常", e);
             throw new BusinessException(ErrorCode.UNKNOWN);
         }
         return ApiResult.success();
@@ -106,15 +158,15 @@ public class OssServiceImpl implements OssService {
             // 新建存储桶
             minioClient.makeBucket(args2);
             // 设置存储桶自定义策略
-            String bucketPolicy = OssProcessor.customBucketPolicy(bucketVO.getBucketName(),bucketVO.getBucketPolicyList());
+            String bucketPolicy = OssProcessor.customBucketPolicy(bucketVO.getBucketName(), bucketVO.getBucketPolicyList());
             SetBucketPolicyArgs args3 = SetBucketPolicyArgs.builder()
                     .bucket(bucketVO.getBucketName())
                     .config(bucketPolicy)
                     .build();
             // 设置存储桶策略
             minioClient.setBucketPolicy(args3);
-        } catch (Exception e){
-            log.error("存储桶创建异常",e);
+        } catch (Exception e) {
+            log.error("存储桶创建异常", e);
             throw new BusinessException(ErrorCode.UNKNOWN);
         }
         return ApiResult.success();
@@ -131,8 +183,8 @@ public class OssServiceImpl implements OssService {
                     .bucket(bucketName)
                     .build();
             minioClient.removeBucket(args);
-        } catch (Exception e){
-            log.error("存储桶删除异常",e);
+        } catch (Exception e) {
+            log.error("存储桶删除异常", e);
             throw new BusinessException(ErrorCode.UNKNOWN);
         }
         return ApiResult.success();
@@ -144,16 +196,17 @@ public class OssServiceImpl implements OssService {
             List<Bucket> buckets = minioClient.listBuckets();
             List<String> bucketNames = buckets.stream().map(Bucket::name).toList();
             return ApiResult.success(bucketNames);
-        } catch (Exception e){
-            log.error("获取存储桶异常",e);
+        } catch (Exception e) {
+            log.error("获取存储桶异常", e);
             throw new BusinessException(ErrorCode.UNKNOWN);
         }
     }
 
     @Override
-    public ApiResult<String> uploadFile(MultipartFile file, String bucketName) {
+    public ApiResult<String> uploadFile(MultipartFile file, String bucketName, String fileMd5) {
         String filePath;
         bucketName = StringUtils.isBlank(bucketName) ? ossProperties.getBucketName() : bucketName;
+
         // 文件大小
         long size = file.getSize();
         if (size == 0) {
@@ -180,15 +233,26 @@ public class OssServiceImpl implements OssService {
             contentType = MediaType.APPLICATION_OCTET_STREAM_VALUE;
         }
 
+        // ========== 秒传功能：检查文件MD5是否已存在 ==========
+        if (StringUtils.isNotBlank(fileMd5)) {
+            InstantUploadResult instantResult = checkFileExistsByMd5(fileMd5, bucketName);
+            if (instantResult.exists()) {
+                log.info("普通上传 - 文件已存在，实现秒传 - MD5: {}, 原存储桶: {}, 文件路径: {}",
+                        fileMd5, instantResult.bucketName(), instantResult.filePath());
+                return ApiResult.success(instantResult.fileUrl());
+            }
+        }
+        // ============================================
+
         // 根据日期打散目录，使用 UUID 重命名文件
         filePath = formatter.format(LocalDate.now()) +
                 UUID.randomUUID().toString().replace("-", "") +
                 ext;
 
-        log.info("文件名称：{}", fileName);
-        log.info("文件大小：{}", size);
-        log.info("文件类型：{}", contentType);
-        log.info("文件路径：{}", filePath);
+        log.info("普通上传 - 文件名称：{}", fileName);
+        log.info("普通上传 - 文件大小：{}", size);
+        log.info("普通上传 - 文件类型：{}", contentType);
+        log.info("普通上传 - 文件路径：{}", filePath);
 
         try (InputStream inputStream = file.getInputStream()) {
 
@@ -205,10 +269,35 @@ public class OssServiceImpl implements OssService {
 
             // 上传文件到客户端
             minioClient.putObject(args);
-        } catch (Exception e){
-            log.error("上传文件异常",e);
+        } catch (Exception e) {
+            log.error("上传文件异常", e);
             throw new BusinessException(ErrorCode.UNKNOWN);
         }
+
+        // ========== 保存文件索引（用于后续秒传） ==========
+        // 如果客户端提供了MD5，上传成功后保存文件索引到默认桶
+        if (StringUtils.isNotBlank(fileMd5)) {
+            // 文件索引统一存储在默认存储桶中，格式：bucketName:/filePath
+            String indexBucketName = ossProperties.getBucketName();
+            String fileIndexPath = FILE_INDEX_PREFIX + indexBucketName + "/" + fileMd5;
+            // 索引内容包含存储桶名称，格式：bucketName:/filePath
+            String indexContent = bucketName + ":" + filePath;
+            byte[] filePathBytes = indexContent.getBytes(StandardCharsets.UTF_8);
+            try (InputStream inputStream = new java.io.ByteArrayInputStream(filePathBytes)) {
+                PutObjectArgs indexArgs = PutObjectArgs.builder()
+                        .bucket(indexBucketName)
+                        .object(fileIndexPath)
+                        .stream(inputStream, filePathBytes.length, -1)
+                        .contentType("text/plain")
+                        .build();
+                minioClient.putObject(indexArgs);
+                log.info("普通上传 - 已保存文件索引到默认桶 - MD5: {}, 存储桶: {}, 文件路径: {}", fileMd5, bucketName, filePath);
+            } catch (Exception e) {
+                // 保存索引失败不影响上传结果，只记录日志
+                log.warn("普通上传 - 保存文件索引失败", e);
+            }
+        }
+        // ============================================
 
         // 访问路径
         return ApiResult.success(ossProperties.getEndpointCdn() + bucketName + filePath);
@@ -261,8 +350,8 @@ public class OssServiceImpl implements OssService {
 
             // 上传文件到客户端
             minioClient.putObject(args);
-        } catch (Exception e){
-            log.error("上传文件异常",e);
+        } catch (Exception e) {
+            log.error("上传文件异常", e);
             throw new BusinessException(ErrorCode.UNKNOWN);
         }
 
@@ -273,9 +362,9 @@ public class OssServiceImpl implements OssService {
     @Override
     public void downloadFile(String bucketName, String filePath, HttpServletResponse response) {
         bucketName = StringUtils.isBlank(bucketName) ? ossProperties.getBucketName() : bucketName;
-        String objectName = filePath.replace(ossProperties.getEndpointCdn() + bucketName,"");
+        String objectName = filePath.replace(ossProperties.getEndpointCdn() + bucketName, "");
         String[] fileSplits = filePath.split("/");
-        if (fileSplits.length == 0){
+        if (fileSplits.length == 0) {
             throw new BusinessException(ErrorCode.FILE_PATH_INCORRECT);
         }
         String filename = fileSplits[fileSplits.length - 1];
@@ -294,12 +383,12 @@ public class OssServiceImpl implements OssService {
                 .object(objectName)
                 .build();
 
-        try(InputStream fileInputStream = minioClient.getObject(args);
-            ServletOutputStream fileOutputStream = response.getOutputStream()) {
+        try (InputStream fileInputStream = minioClient.getObject(args);
+             ServletOutputStream fileOutputStream = response.getOutputStream()) {
             IOUtils.copy(fileInputStream, fileOutputStream);
             fileOutputStream.flush();
         } catch (Exception e) {
-            log.error("下载文件异常",e);
+            log.error("下载文件异常", e);
             throw new BusinessException(ErrorCode.UNKNOWN);
         }
     }
@@ -307,7 +396,7 @@ public class OssServiceImpl implements OssService {
     @Override
     public void removeFile(String bucketName, String filePath) {
         bucketName = StringUtils.isBlank(bucketName) ? ossProperties.getBucketName() : bucketName;
-        String objectName = filePath.replace(ossProperties.getEndpointCdn() + bucketName,"");
+        String objectName = filePath.replace(ossProperties.getEndpointCdn() + bucketName, "");
         RemoveObjectArgs args = RemoveObjectArgs.builder()
                 .bucket(bucketName)
                 .object(objectName)
@@ -315,13 +404,13 @@ public class OssServiceImpl implements OssService {
         try {
             minioClient.removeObject(args);
         } catch (Exception e) {
-            log.error("删除文件异常",e);
+            log.error("删除文件异常", e);
             throw new BusinessException(ErrorCode.UNKNOWN);
         }
     }
 
     @Override
-    public List<String> listFilesByBucketName(String bucketName,String prefix,Integer size) {
+    public List<String> listFilesByBucketName(String bucketName, String prefix, Integer size) {
         // 处理前缀：如果是空字符串，设置为null
         String effectivePrefix = StringUtils.isBlank(prefix) ? null : prefix;
         if (effectivePrefix != null && !effectivePrefix.endsWith("/")) {
@@ -370,8 +459,8 @@ public class OssServiceImpl implements OssService {
 
                 log.debug("添加文件: {} (文件夹: {})", objectName, isFolder);
             }
-        } catch (Exception e){
-            log.error("查询文件列表异常",e);
+        } catch (Exception e) {
+            log.error("查询文件列表异常", e);
             throw new BusinessException(ErrorCode.UNKNOWN);
         }
 
@@ -391,8 +480,8 @@ public class OssServiceImpl implements OssService {
         try {
             // 设置存储桶策略
             minioClient.setBucketPolicy(args);
-        } catch (Exception e){
-            log.error("设置存储桶策略异常",e);
+        } catch (Exception e) {
+            log.error("设置存储桶策略异常", e);
             throw new BusinessException(ErrorCode.UNKNOWN);
         }
         return ApiResult.success();
@@ -406,8 +495,8 @@ public class OssServiceImpl implements OssService {
         try {
             // 查询存储桶策略
             return minioClient.getBucketPolicy(args);
-        } catch (Exception e){
-            log.error("查询存储桶策略异常",e);
+        } catch (Exception e) {
+            log.error("查询存储桶策略异常", e);
             throw new BusinessException(ErrorCode.UNKNOWN);
         }
     }
@@ -428,8 +517,8 @@ public class OssServiceImpl implements OssService {
             String presignedUrl = minioCdnClient.getPresignedObjectUrl(args);
             log.info("生成的 presigned URL: {}", presignedUrl);
             return presignedUrl;
-        } catch (Exception e){
-            log.error("生成临时访问url异常",e);
+        } catch (Exception e) {
+            log.error("生成临时访问url异常", e);
             throw new BusinessException(ErrorCode.UNKNOWN);
         }
     }
@@ -443,19 +532,19 @@ public class OssServiceImpl implements OssService {
     }
 
     @Override
-    public void downloadFileChunk(String bucketName,String objectName,Long offset,Long length,HttpServletResponse response) {
+    public void downloadFileChunk(String bucketName, String objectName, Long offset, Long length, HttpServletResponse response) {
         StatObjectResponse statObject = OssProcessor.getStatObject(bucketName, objectName);
         // 文件的长度
         long size = statObject.size();
         if (offset > size) {
             throw new BusinessException(ErrorCode.UNKNOWN);
         }
-        if (length != null && (offset + length) > size){
+        if (length != null && (offset + length) > size) {
             throw new BusinessException(ErrorCode.UNKNOWN);
         }
         String filename;
         String oldName = OssProcessor.getFileNameByObjectName(objectName);
-        if (length == null){
+        if (length == null) {
             filename = oldName + "_1";
         } else {
             long num = (offset % length);
@@ -474,12 +563,12 @@ public class OssServiceImpl implements OssService {
                 .offset(offset)
                 .length(length)
                 .build();
-        try(InputStream fileInputStream = minioClient.getObject(args);
-            ServletOutputStream fileOutputStream = response.getOutputStream()) {
+        try (InputStream fileInputStream = minioClient.getObject(args);
+             ServletOutputStream fileOutputStream = response.getOutputStream()) {
             IOUtils.copy(fileInputStream, fileOutputStream);
             fileOutputStream.flush();
         } catch (Exception e) {
-            log.error("下载文件块异常",e);
+            log.error("下载文件块异常", e);
             throw new BusinessException(ErrorCode.UNKNOWN);
         }
     }
@@ -488,6 +577,44 @@ public class OssServiceImpl implements OssService {
      * 分片上传临时路径前缀
      */
     private static final String CHUNK_UPLOAD_PREFIX = ".chunk-uploads/";
+
+    /**
+     * 文件索引路径前缀（用于秒传）
+     */
+    private static final String FILE_INDEX_PREFIX = ".file-index/";
+
+    /**
+     * 秒传结果内部类
+     */
+    private static class InstantUploadResult {
+        private final boolean exists;          // 文件是否存在
+        private final String bucketName;         // 文件所在的存储桶
+        private final String filePath;           // 文件路径
+        private final String fileUrl;           // 文件访问URL
+
+        InstantUploadResult(boolean exists, String bucketName, String filePath, String fileUrl) {
+            this.exists = exists;
+            this.bucketName = bucketName;
+            this.filePath = filePath;
+            this.fileUrl = fileUrl;
+        }
+
+        public boolean exists() {
+            return exists;
+        }
+
+        public String bucketName() {
+            return bucketName;
+        }
+
+        public String filePath() {
+            return filePath;
+        }
+
+        public String fileUrl() {
+            return fileUrl;
+        }
+    }
 
     @Override
     public ApiResult<ChunkUploadStatusVO> initChunkUpload(ChunkUploadInitVO chunkUploadInitVO) {
@@ -517,19 +644,51 @@ public class OssServiceImpl implements OssService {
             return ApiResult.failed(ErrorCode.NOT_UPLOAD_EMPTY_EXT);
         }
 
+        // 确定目标存储桶（文件最终保存的位置）
+        String targetBucketName = chunkUploadInitVO.getBucketName();
+        if (StringUtils.isBlank(targetBucketName)) {
+            targetBucketName = ossProperties.getBucketName();
+        }
+
+        // ========== 秒传功能：检查文件是否已存在 ==========
+        InstantUploadResult instantResult = checkFileExistsByMd5(fileMd5, targetBucketName);
+        if (instantResult.exists()) {
+            log.info("文件已存在，实现秒传 - MD5: {}, 原存储桶: {}, 文件路径: {}",
+                    fileMd5, instantResult.bucketName(), instantResult.filePath());
+
+            // 返回秒传结果
+            ChunkUploadStatusVO statusVO = new ChunkUploadStatusVO();
+            statusVO.setFileName(fileName);
+            statusVO.setFileMd5(fileMd5);
+            statusVO.setTotalSize(totalSize);
+            statusVO.setChunkSize(chunkSize);
+            statusVO.setTotalChunks(0);
+            statusVO.setUploadedChunks(new ArrayList<>());
+            statusVO.setIsCompleted(true);
+            statusVO.setFilePath(instantResult.fileUrl());
+            statusVO.setIsInstant(true);
+
+            return ApiResult.success(statusVO);
+        }
+        // ============================================
+
+        // 默认存储桶（用于存储临时分片）
+        String indexBucketName = ossProperties.getBucketName();
+
         // 计算分片数量
         int totalChunks = (int) Math.ceil((double) totalSize / chunkSize);
 
-        // 分片上传到默认存储桶的临时路径，使用 uploadSessionId 区分不同的上传会话
-        // 路径格式: .chunk-uploads/{uploadSessionId}/{fileMd5}/
-        String chunkUploadDir = CHUNK_UPLOAD_PREFIX + uploadSessionId + "/" + fileMd5 + "/";
-        String bucketName = ossProperties.getBucketName();
+        // 分片上传到默认存储桶的临时路径（实现跨桶断点续传），使用 fileMd5 作为唯一标识
+        // 路径格式: .chunk-uploads/{fileMd5}/
+        // 分片文件命名格式: {chunkIndex}.chunk
+        // 注意：不使用 uploadSessionId，这样同一个文件可以跨会话断点续传
+        String chunkUploadDir = CHUNK_UPLOAD_PREFIX + fileMd5 + "/";
 
-        // 查询已上传的分片
+        // 查询已上传的分片（断点续传）
         List<Integer> uploadedChunks = new ArrayList<>();
         try {
             ListObjectsArgs args = ListObjectsArgs.builder()
-                    .bucket(bucketName)
+                    .bucket(indexBucketName)
                     .prefix(chunkUploadDir)
                     .recursive(true)
                     .build();
@@ -543,10 +702,15 @@ public class OssServiceImpl implements OssService {
                     try {
                         int chunkIndex = Integer.parseInt(chunkFileName);
                         uploadedChunks.add(chunkIndex);
+                        log.debug("发现已上传分片: {}", chunkIndex);
                     } catch (NumberFormatException e) {
                         log.warn("解析分片序号失败: {}", chunkFileName);
                     }
                 }
+            }
+
+            if (!uploadedChunks.isEmpty()) {
+                log.info("断点续传 - 已上传 {}/{} 个分片", uploadedChunks.size(), totalChunks);
             }
         } catch (Exception e) {
             log.error("查询分片上传记录异常", e);
@@ -559,8 +723,10 @@ public class OssServiceImpl implements OssService {
         statusVO.setTotalSize(totalSize);
         statusVO.setChunkSize(chunkSize);
         statusVO.setTotalChunks(totalChunks);
-        statusVO.setUploadedChunks(uploadedChunks);
+        statusVO.setUploadedChunks(uploadedChunks.stream().sorted().collect(Collectors.toList()));
         statusVO.setIsCompleted(uploadedChunks.size() >= totalChunks);
+        statusVO.setFilePath(null);
+        statusVO.setIsInstant(false);
 
         return ApiResult.success(statusVO);
     }
@@ -578,30 +744,45 @@ public class OssServiceImpl implements OssService {
             return ApiResult.failed(ErrorCode.NOT_UPLOAD_EMPTY_FILE);
         }
 
-        if (StringUtils.isBlank(uploadSessionId)) {
-            return ApiResult.failed(ErrorCode.INVALID_PARAMETER, "上传会话ID不能为空");
-        }
-
         if (chunkNumber < 0 || chunkNumber >= totalChunks) {
             return ApiResult.failed(ErrorCode.UNKNOWN);
         }
 
-        // 分片文件上传到默认存储桶的临时路径: .chunk-uploads/{uploadSessionId}/{fileMd5}/{chunkNumber}.chunk
-        String chunkPath = CHUNK_UPLOAD_PREFIX + uploadSessionId + "/" + fileMd5 + "/" + chunkNumber + ".chunk";
-        String bucketName = ossProperties.getBucketName();
+        // 分片文件上传到默认存储桶的临时路径: .chunk-uploads/{fileMd5}/{chunkIndex}.chunk
+        String indexBucketName = ossProperties.getBucketName(); // 使用默认桶存储分片
+        String chunkPath = CHUNK_UPLOAD_PREFIX + fileMd5 + "/" + chunkNumber + ".chunk";
 
-        log.info("上传分片 - 文件: {}, MD5: {}, 会话ID: {}, 分片: {}/{}, 大小: {}",
-                fileName, fileMd5, uploadSessionId, chunkNumber + 1, totalChunks, file.getSize());
+        // ========== 分片秒传：检查分片是否已存在 ==========
+        try {
+            StatObjectArgs statArgs = StatObjectArgs.builder()
+                    .bucket(indexBucketName)
+                    .object(chunkPath)
+                    .build();
+            minioClient.statObject(statArgs);
+
+            // 分片已存在，跳过上传（分片秒传）
+            log.info("✨ 分片秒传成功 - 文件: {}, 分片: {}/{}, 会话ID: {}",
+                    fileName, chunkNumber + 1, totalChunks, uploadSessionId);
+            return ApiResult.success("分片已存在，无需重复上传");
+        } catch (Exception e) {
+            // 分片不存在，继续上传
+            log.debug("分片不存在，开始上传 - 分片: {}", chunkNumber);
+        }
+        // ============================================
+
+        log.info("上传分片 - 文件: {}, 分片: {}/{}, 会话ID: {}, 大小: {}",
+                fileName, chunkNumber + 1, totalChunks, uploadSessionId, file.getSize());
 
         try (InputStream inputStream = file.getInputStream()) {
             PutObjectArgs args = PutObjectArgs.builder()
-                    .bucket(bucketName)
+                    .bucket(indexBucketName) // 使用默认桶存储分片
                     .object(chunkPath)
                     .stream(inputStream, file.getSize(), -1)
                     .contentType("application/octet-stream")
                     .build();
 
             minioClient.putObject(args);
+            log.info("分片上传成功 - 文件: {}, 分片: {}", fileName, chunkNumber + 1);
         } catch (Exception e) {
             log.error("上传分片异常", e);
             throw new BusinessException(ErrorCode.UNKNOWN);
@@ -616,10 +797,17 @@ public class OssServiceImpl implements OssService {
         String fileMd5 = chunkUploadCompleteVO.getFileMd5();
         String uploadSessionId = chunkUploadCompleteVO.getUploadSessionId();
         Integer totalChunks = chunkUploadCompleteVO.getTotalChunks();
+        String bucketName = chunkUploadCompleteVO.getBucketName();
 
-        if (StringUtils.isBlank(uploadSessionId)) {
-            return ApiResult.failed(ErrorCode.INVALID_PARAMETER, "上传会话ID不能为空");
+        // 注意：uploadSessionId 保留用于日志记录，但分片存储不再使用它
+
+        // 确定目标存储桶（文件最终保存的位置）
+        if (StringUtils.isBlank(bucketName)) {
+            bucketName = ossProperties.getBucketName();
         }
+
+        // 默认存储桶（用于存储索引和临时分片）
+        String indexBucketName = ossProperties.getBucketName();
 
         // 文件扩展名
         int index = fileName.lastIndexOf(".");
@@ -633,18 +821,34 @@ public class OssServiceImpl implements OssService {
                 UUID.randomUUID().toString().replace("-", "") +
                 ext;
 
-        // 分片文件目录（在目标存储桶的临时路径中）
-        String chunkUploadDir = CHUNK_UPLOAD_PREFIX + uploadSessionId + "/" + fileMd5 + "/";
-        String bucketName = ossProperties.getBucketName();
+        // 分片文件目录（在默认存储桶的临时路径中），只使用 fileMd5
+        // 分片文件命名格式: {chunkIndex}.chunk
+        // 元数据文件记录每个分片的MD5：chunks-meta.json
+        String chunkUploadDir = CHUNK_UPLOAD_PREFIX + fileMd5 + "/";
 
-        log.info("开始合并分片 - 文件: {}, MD5: {}, 会话ID: {}, 总分片: {}, 目标存储桶: {}",
-                fileName, fileMd5, uploadSessionId, totalChunks, bucketName);
+        log.info("开始合并分片 - 文件: {}, MD5: {}, 会话ID: {}, 总分片: {}, 目标存储桶: {}, 索引桶: {}",
+                fileName, fileMd5, uploadSessionId, totalChunks, bucketName, indexBucketName);
 
         try {
+            // 验证所有分片都已上传（直接按chunkIndex命名查询）
+            for (int i = 0; i < totalChunks; i++) {
+                String chunkPath = chunkUploadDir + i + ".chunk";
+                try {
+                    StatObjectArgs statArgs = StatObjectArgs.builder()
+                            .bucket(indexBucketName)
+                            .object(chunkPath)
+                            .build();
+                    minioClient.statObject(statArgs);
+                } catch (Exception e) {
+                    log.error("分片 {} 未上传，无法合并", i);
+                    return ApiResult.failed(ErrorCode.UNKNOWN, "分片不完整，无法合并");
+                }
+            }
+
             // 验证分片大小 >= 5MB (MinIO composeObject API 硬性要求)
             String firstChunkPath = chunkUploadDir + "0.chunk";
             StatObjectArgs statArgs = StatObjectArgs.builder()
-                    .bucket(bucketName)
+                    .bucket(indexBucketName) // 从默认桶读取分片
                     .object(firstChunkPath)
                     .build();
             long firstChunkSize = minioClient.statObject(statArgs).size();
@@ -656,31 +860,33 @@ public class OssServiceImpl implements OssService {
             }
 
             // 使用 MinIO 原生的 composeObject API 在服务端合并分片
-            log.info("使用 composeObject 服务端合并分片");
+            log.info("使用 composeObject 服务端合并分片 - 从默认桶读取分片，合并到目标桶");
             List<io.minio.ComposeSource> sources = new ArrayList<>();
             for (int i = 0; i < totalChunks; i++) {
                 String chunkPath = chunkUploadDir + i + ".chunk";
                 sources.add(io.minio.ComposeSource.builder()
-                        .bucket(bucketName)
+                        .bucket(indexBucketName) // 从默认桶读取分片
                         .object(chunkPath)
                         .build());
                 log.info("添加分片 {} 到合并列表: {}", i + 1, chunkPath);
             }
 
+            // 合并到目标存储桶
             ComposeObjectArgs composeArgs = ComposeObjectArgs.builder()
-                    .bucket(bucketName)
+                    .bucket(bucketName) // 合并到目标桶
                     .object(finalFilePath)
                     .sources(sources)
                     .build();
 
             minioClient.composeObject(composeArgs);
 
-            log.info("使用 composeObject 服务端合并分片成功: {}", finalFilePath);
+            log.info("使用 composeObject 服务端合并分片成功: {} -> bucket:{}", finalFilePath, bucketName);
 
-            // 删除本次上传会话的所有临时分片文件（包含整个会话目录）
+            // ========== 清理临时分片文件 ==========
+            // 删除所有分片文件
             ListObjectsArgs listArgs = ListObjectsArgs.builder()
-                    .bucket(bucketName)
-                    .prefix(CHUNK_UPLOAD_PREFIX + uploadSessionId + "/")
+                    .bucket(indexBucketName)
+                    .prefix(chunkUploadDir)
                     .recursive(true)
                     .build();
             Iterable<Result<Item>> results = minioClient.listObjects(listArgs);
@@ -691,7 +897,7 @@ public class OssServiceImpl implements OssService {
                     Item item = result.get();
                     String objectName = item.objectName();
                     RemoveObjectArgs removeArgs = RemoveObjectArgs.builder()
-                            .bucket(bucketName)
+                            .bucket(indexBucketName)
                             .object(objectName)
                             .build();
                     minioClient.removeObject(removeArgs);
@@ -702,9 +908,26 @@ public class OssServiceImpl implements OssService {
                 }
             }
 
-            log.info("已删除 {} 个临时分片文件，会话ID: {}", deletedCount, uploadSessionId);
+            log.info("已删除 {} 个临时分片文件和元数据，文件MD5: {}", deletedCount, fileMd5);
 
-            log.info("分片合并成功 - 文件路径: {}", finalFilePath);
+            // ========== 保存文件索引（用于秒传） ==========
+            // 文件索引统一存储在默认存储桶中，格式：bucketName:/filePath
+            String fileIndexPath = FILE_INDEX_PREFIX + indexBucketName + "/" + fileMd5;
+            String indexContent = bucketName + ":" + finalFilePath; // 包含存储桶名称
+            byte[] filePathBytes = indexContent.getBytes(StandardCharsets.UTF_8);
+            try (InputStream inputStream = new java.io.ByteArrayInputStream(filePathBytes)) {
+                PutObjectArgs indexArgs = PutObjectArgs.builder()
+                        .bucket(indexBucketName) // 索引存储在默认桶
+                        .object(fileIndexPath)
+                        .stream(inputStream, filePathBytes.length, -1)
+                        .contentType("text/plain")
+                        .build();
+                minioClient.putObject(indexArgs);
+                log.info("已保存文件索引到默认桶 - MD5: {}, 存储桶: {}, 文件路径: {}", fileMd5, bucketName, finalFilePath);
+            }
+            // ============================================
+
+            log.info("分片合并成功 - 存储桶: {}, 文件路径: {}", bucketName, finalFilePath);
 
             // 返回文件访问URL
             return ApiResult.success(ossProperties.getEndpointCdn() + bucketName + finalFilePath);
@@ -748,10 +971,7 @@ public class OssServiceImpl implements OssService {
                     chunkFileName = chunkFileName.replace(".chunk", "");
                     try {
                         int chunkIndex = Integer.parseInt(chunkFileName);
-                        // 避免重复添加同一分片（不同会话可能有相同分片）
-                        if (!uploadedChunks.contains(chunkIndex)) {
-                            uploadedChunks.add(chunkIndex);
-                        }
+                        uploadedChunks.add(chunkIndex);
                     } catch (NumberFormatException e) {
                         log.warn("解析分片序号失败: {}", chunkFileName);
                     }
@@ -788,15 +1008,19 @@ public class OssServiceImpl implements OssService {
         log.info("取消分片上传 - MD5: {}, 会话ID: {}, 存储桶: {}", fileMd5, uploadSessionId, useBucketName);
 
         try {
-            // 如果提供了 uploadSessionId，只删除该会话的文件
+            // 分片存储现在只使用 fileMd5，不再使用 uploadSessionId
+            // 这样同一个文件可以跨会话断点续传
             String prefix;
-            if (StringUtils.isNotBlank(uploadSessionId)) {
-                prefix = CHUNK_UPLOAD_PREFIX + uploadSessionId + "/";
-            } else {
-                // 否则删除所有匹配MD5的分片文件（包含所有会话）
+            if (StringUtils.isNotBlank(fileMd5)) {
+                // 使用 MD5 删除分片
                 prefix = CHUNK_UPLOAD_PREFIX + fileMd5 + "/";
+            } else {
+                // MD5 为空时，无法删除
+                log.warn("取消分片上传失败 - 未提供文件MD5");
+                return ApiResult.failed(ErrorCode.INVALID_PARAMETER, "请提供文件MD5");
             }
 
+            // 列出所有需要删除的对象
             ListObjectsArgs listArgs = ListObjectsArgs.builder()
                     .bucket(useBucketName)
                     .prefix(prefix)
@@ -804,26 +1028,40 @@ public class OssServiceImpl implements OssService {
                     .build();
             Iterable<Result<Item>> results = minioClient.listObjects(listArgs);
 
-            int deletedCount = 0;
+            // 收集所有对象名称
+            java.util.List<String> objectNames = new java.util.ArrayList<>();
             for (Result<Item> result : results) {
                 try {
                     Item item = result.get();
-                    String objectName = item.objectName();
+                    objectNames.add(item.objectName());
+                } catch (Exception e) {
+                    log.error("获取对象信息失败", e);
+                }
+            }
+
+            log.info("找到 {} 个待删除的分片文件", objectNames.size());
+
+            // 同步删除所有对象，确保删除完成
+            int deletedCount = 0;
+            int failedCount = 0;
+            for (String objectName : objectNames) {
+                try {
                     RemoveObjectArgs removeArgs = RemoveObjectArgs.builder()
                             .bucket(useBucketName)
                             .object(objectName)
                             .build();
                     minioClient.removeObject(removeArgs);
                     deletedCount++;
-                    log.info("已删除临时文件: {}", objectName);
+                    log.info("已删除分片: {}", objectName);
                 } catch (Exception e) {
-                    log.error("删除临时文件失败", e);
+                    failedCount++;
+                    log.error("删除分片失败: {}", objectName, e);
                 }
             }
 
-            log.info("已删除 {} 个分片文件", deletedCount);
+            log.info("删除完成 - 成功: {}, 失败: {}, 文件夹: {}", deletedCount, failedCount, prefix);
 
-            return ApiResult.success("分片上传已取消");
+            return ApiResult.success("分片上传已取消，已删除 " + deletedCount + " 个文件");
 
         } catch (Exception e) {
             log.error("取消分片上传异常", e);
@@ -1008,7 +1246,7 @@ public class OssServiceImpl implements OssService {
 
     private boolean isBuiltInTemplate(String templateName) {
         return "public".equals(templateName) ||
-               "readonly".equals(templateName) ||
-               "private".equals(templateName);
+                "readonly".equals(templateName) ||
+                "private".equals(templateName);
     }
 }

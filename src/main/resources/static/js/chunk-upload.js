@@ -14,35 +14,35 @@ class ChunkUploader {
         this.startTime = 0;
         this.lastUpdateBytes = 0;
         this.lastUpdateTime = 0;
-        
+        this.activeXhrs = new Set(); // 存储所有活动的 XMLHttpRequest
+
         this.initElements();
         this.bindEvents();
     }
     
     initElements() {
-        this.uploadArea = document.getElementById('chunkUploadArea');
-        this.fileInput = document.getElementById('chunkFileInput');
-        this.fileInfo = document.getElementById('chunkFileInfo');
-        this.fileName = document.getElementById('chunkFileName');
-        this.fileSize = document.getElementById('chunkFileSize');
-        this.fileMd5 = document.getElementById('chunkFileMd5');
+        this.uploadArea = document.getElementById('chunkUploadArea') || document.getElementById('uploadArea');
+        this.fileInput = document.getElementById('chunkFileInput') || document.getElementById('fileInput');
+        this.fileInfo = document.getElementById('chunkFileInfo') || document.getElementById('fileInfo');
+        this.fileName = document.getElementById('chunkFileName') || document.getElementById('fileName');
+        this.fileSize = document.getElementById('chunkFileSize') || document.getElementById('fileSize');
+        this.fileMd5 = document.getElementById('chunkFileMd5') || document.getElementById('fileMd5');
         this.chunkSizeInput = document.getElementById('chunkSize');
-        this.bucketNameInput = document.getElementById('chunkBucketName');
-        this.concurrencyInput = document.getElementById('chunkConcurrency');
-        this.startBtn = document.getElementById('chunkStartBtn');
-        this.pauseBtn = document.getElementById('chunkPauseBtn');
-        this.cancelBtn = document.getElementById('chunkCancelBtn');
-        this.retryBtn = document.getElementById('chunkRetryBtn');
-        this.progressContainer = document.getElementById('chunkProgressContainer');
-        this.progressText = document.getElementById('chunkProgressText');
-        this.progressPercent = document.getElementById('chunkProgressPercent');
-        this.progressFill = document.getElementById('chunkProgressFill');
-        this.progressStatus = document.getElementById('chunkProgressStatus');
-        this.uploadSpeed = document.getElementById('chunkUploadSpeed');
-        this.uploadTime = document.getElementById('chunkUploadTime');
+        this.concurrencyInput = document.getElementById('chunkConcurrency') || document.getElementById('concurrency');
+        this.startBtn = document.getElementById('chunkStartBtn') || document.getElementById('startBtn');
+        this.pauseBtn = document.getElementById('chunkPauseBtn') || document.getElementById('pauseBtn');
+        this.cancelBtn = document.getElementById('chunkCancelBtn') || document.getElementById('cancelBtn');
+        this.retryBtn = document.getElementById('chunkRetryBtn') || document.getElementById('retryBtn');
+        this.progressContainer = document.getElementById('chunkProgressContainer') || document.getElementById('progressContainer');
+        this.progressText = document.getElementById('chunkProgressText') || document.getElementById('progressText');
+        this.progressPercent = document.getElementById('chunkProgressPercent') || document.getElementById('progressPercent');
+        this.progressFill = document.getElementById('chunkProgressFill') || document.getElementById('progressFill');
+        this.progressStatus = document.getElementById('chunkProgressStatus') || document.getElementById('progressStatus');
+        this.uploadSpeed = document.getElementById('chunkUploadSpeed') || document.getElementById('uploadSpeed');
+        this.uploadTime = document.getElementById('chunkUploadTime') || document.getElementById('uploadTime');
         this.chunkList = document.getElementById('chunkList');
-        this.result = document.getElementById('chunkResult');
-        this.fileUrl = document.getElementById('chunkFileUrl');
+        this.result = document.getElementById('chunkResult') || document.getElementById('result');
+        this.fileUrl = document.getElementById('chunkFileUrl') || document.getElementById('fileUrl');
     }
     
     bindEvents() {
@@ -75,6 +75,12 @@ class ChunkUploader {
     
     handleFileSelect(file) {
         if (!file) return;
+        // 重置取消标志和状态
+        this.isCancelled = false;
+        this.isPaused = false;
+        this.setButtonStates({
+            pause: { disabled: true, text: '暂停上传', style: 'secondary' }
+        });
         this.file = file;
         this.uploadSessionId = this.generateUUID();
         this.showFileInfo();
@@ -108,7 +114,7 @@ class ChunkUploader {
         }
     }
     
-    async calculateMd5() {
+    async     calculateMd5() {
         if (this.fileMd5) {
             this.fileMd5.textContent = '计算中...';
         }
@@ -118,6 +124,12 @@ class ChunkUploader {
             const chunks = Math.ceil(this.file.size / chunkSize);
 
             for (let i = 0; i < chunks; i++) {
+                // 检查是否已取消或文件已被清空
+                if (this.isCancelled || !this.file) {
+                    console.log('MD5计算已取消');
+                    return;
+                }
+
                 const start = i * chunkSize;
                 const end = Math.min(start + chunkSize, this.file.size);
                 const chunk = this.file.slice(start, end);
@@ -131,6 +143,12 @@ class ChunkUploader {
                 }
             }
 
+            // 计算完成后再次检查是否被取消
+            if (this.isCancelled || !this.file) {
+                console.log('MD5计算完成后发现已取消');
+                return;
+            }
+
             this.fileMd5Value = spark.end();
             if (this.fileMd5) {
                 this.fileMd5.textContent = this.fileMd5Value;
@@ -140,14 +158,17 @@ class ChunkUploader {
             }
         } catch (error) {
             console.error('计算MD5失败:', error);
-            if (this.fileMd5) {
+            // 忽略取消导致的错误
+            if (!this.isCancelled && this.fileMd5) {
                 this.fileMd5.textContent = '计算失败';
             }
         }
     }
+
+
     
     showFileInfo() {
-        if (this.fileInfo) {
+        if (this.fileInfo && this.file) {
             this.fileInfo.classList.add('show');
             this.fileName.textContent = this.file.name;
             this.fileSize.textContent = this.formatFileSize(this.file.size);
@@ -192,18 +213,12 @@ class ChunkUploader {
         this.lastUpdateBytes = 0;
         this.lastUpdateTime = this.startTime;
 
-        if (this.startBtn) {
-            this.startBtn.disabled = true;
-        }
-        if (this.pauseBtn) {
-            this.pauseBtn.disabled = false;
-        }
-        if (this.cancelBtn) {
-            this.cancelBtn.disabled = false;
-        }
-        if (this.retryBtn) {
-            this.retryBtn.disabled = true;
-        }
+        this.setButtonStates({
+            start: { disabled: true },
+            pause: { disabled: false, text: '暂停上传', style: 'secondary' },
+            cancel: { disabled: false },
+            retry: { disabled: true }
+        });
 
         if (this.progressContainer) {
             this.progressContainer.classList.add('show');
@@ -211,24 +226,39 @@ class ChunkUploader {
         this.initChunkList();
 
         try {
-            await this.initUpload();
+            // 初始化上传，检查是否秒传
+            const isInstant = await this.initUpload();
+
+            // 如果秒传成功，直接返回，不执行后续的分片上传和合并
+            if (isInstant) {
+                return;
+            }
+
+            // 正常的分片上传流程
             await this.uploadChunks();
-            await this.completeUpload();
+
+            // 只有在未取消且未暂停，并且所有分片都已上传的情况下才调用合并接口
+            if (!this.isPaused && !this.isCancelled && this.uploadedChunks.size === this.totalChunks) {
+                await this.completeUpload();
+            } else if (this.isCancelled) {
+                console.log('上传已取消，跳过合并');
+            } else if (this.isPaused) {
+                console.log('上传已暂停，等待继续上传后再合并');
+            }
         } catch (error) {
             console.error('上传失败:', error);
-            alert('上传失败: ' + error.message);
+            // 只有非取消导致的错误才显示提示
+            if (!this.isCancelled) {
+                alert('上传失败: ' + error.message);
+            }
         } finally {
-            if (this.startBtn) {
-                this.startBtn.disabled = false;
-            }
-            if (this.pauseBtn) {
-                this.pauseBtn.disabled = true;
-            }
-            if (this.cancelBtn) {
-                this.cancelBtn.disabled = true;
-            }
-            if (this.pauseBtn) {
-                this.pauseBtn.textContent = '暂停上传';
+            // 只在非暂停状态下重置按钮，否则保持暂停/继续按钮的当前状态
+            if (!this.isPaused) {
+                this.setButtonStates({
+                    start: { disabled: false },
+                    pause: { disabled: true, text: '暂停上传', style: 'secondary' },
+                    cancel: { disabled: true }
+                });
             }
         }
     }
@@ -245,15 +275,26 @@ class ChunkUploader {
                 uploadSessionId: this.uploadSessionId
             })
         });
-        
+
         const result = await response.json();
         if (result.code === "0000" && result.data) {
+            // 检查是否为秒传
+            if (result.data.isInstant) {
+                console.log('✨ 文件秒传成功！');
+                const filePath = result.data.filePath;
+                alert(`⚡ 秒传成功！\n\n文件已存在于存储桶中，无需重新上传。\n\n📁 文件路径：\n${filePath}`);
+                this.showResult(filePath, true);
+                return true; // 返回 true 表示秒传成功
+            }
+
+            // 正常的分片上传流程
             result.data.uploadedChunks.forEach(chunkIndex => {
                 this.uploadedChunks.add(chunkIndex);
                 this.updateChunkStatus(chunkIndex, 'completed');
             });
             this.updateProgress();
         }
+        return false; // 返回 false 表示需要正常上传
     }
     
     async uploadChunks() {
@@ -326,10 +367,16 @@ class ChunkUploader {
     
     uploadChunk(chunkIndex) {
         return new Promise((resolve, reject) => {
+            // 检查是否已取消或文件已被清空
+            if (this.isCancelled || !this.file) {
+                reject(new Error('上传已取消'));
+                return;
+            }
+
             const start = chunkIndex * this.chunkSize;
             const end = Math.min(start + this.chunkSize, this.file.size);
             const chunk = this.file.slice(start, end);
-            
+
             const formData = new FormData();
             formData.append('fileName', this.file.name);
             formData.append('fileMd5', this.fileMd5Value);
@@ -339,10 +386,10 @@ class ChunkUploader {
             formData.append('chunkSize', this.chunkSize);
             formData.append('totalSize', this.file.size);
             formData.append('file', chunk);
-            
+
             const xhr = new XMLHttpRequest();
             xhr.open('POST', '/oss/uploadChunk', true);
-            
+
             xhr.upload.onprogress = (e) => {
                 if (e.lengthComputable) {
                     const percent = Math.round((e.loaded / e.total) * 100);
@@ -356,8 +403,11 @@ class ChunkUploader {
                     }
                 }
             };
-            
+
             xhr.onload = () => {
+                // 从活动列表中移除
+                this.activeXhrs.delete(xhr);
+
                 if (xhr.status === 200) {
                     try {
                         const result = JSON.parse(xhr.responseText);
@@ -375,17 +425,43 @@ class ChunkUploader {
                     reject(new Error(`HTTP ${xhr.status}`));
                 }
             };
-            
-            xhr.onerror = () => reject(new Error('网络错误'));
-            xhr.ontimeout = () => reject(new Error('请求超时'));
+
+            xhr.onerror = () => {
+                this.activeXhrs.delete(xhr);
+                reject(new Error('网络错误'));
+            };
+
+            xhr.ontimeout = () => {
+                this.activeXhrs.delete(xhr);
+                reject(new Error('请求超时'));
+            };
+
+            xhr.onabort = () => {
+                this.activeXhrs.delete(xhr);
+                reject(new Error('上传已取消'));
+            };
+
             xhr.timeout = 60000; // 60秒超时
-            
+
+            // 先将 xhr 添加到活动列表，然后再发送请求
+            this.activeXhrs.add(xhr);
+
+            // 再次检查是否已取消（防止在准备xhr过程中被取消）
+            if (this.isCancelled) {
+                this.activeXhrs.delete(xhr);
+                reject(new Error('上传已取消'));
+                return;
+            }
+
             xhr.send(formData);
         });
     }
     
     async completeUpload() {
-        const bucketName = this.bucketNameInput.value || 'public';
+        // 检查是否已取消
+        if (this.isCancelled || !this.file) {
+            throw new Error('上传已取消');
+        }
 
         const response = await fetch('/oss/completeChunkUpload', {
             method: 'POST',
@@ -394,7 +470,6 @@ class ChunkUploader {
                 fileName: this.file.name,
                 fileMd5: this.fileMd5Value,
                 totalChunks: this.totalChunks,
-                bucketName: bucketName,
                 uploadSessionId: this.uploadSessionId
             })
         });
@@ -477,21 +552,51 @@ class ChunkUploader {
         if (chunkItem) {
             const statusDiv = chunkItem.querySelector('.chunk-status');
             const iconDiv = chunkItem.querySelector('.chunk-icon');
-            
+
             statusDiv.className = `chunk-status ${status}`;
-            iconDiv.textContent = status === 'completed' ? '✅' : 
-                                   status === 'uploading' ? '📤' : 
+            iconDiv.textContent = status === 'completed' ? '✅' :
+                                   status === 'uploading' ? '📤' :
                                    status === 'failed' ? '❌' : '⏳';
-            statusDiv.textContent = status === 'completed' ? '已完成' : 
-                                    status === 'uploading' ? '上传中' : 
+            statusDiv.textContent = status === 'completed' ? '已完成' :
+                                    status === 'uploading' ? '上传中' :
                                     status === 'failed' ? '失败' : '等待中';
+        }
+    }
+
+    setButtonStates(states) {
+        // states 对象格式: { start: {disabled: boolean}, pause: {disabled: boolean, text: '暂停上传'|'继续上传', style: 'primary'|'secondary'}, cancel: {disabled: boolean}, retry: {disabled: boolean} }
+        if (states.start && this.startBtn) {
+            this.startBtn.disabled = states.start.disabled;
+        }
+        if (states.pause && this.pauseBtn) {
+            this.pauseBtn.disabled = states.pause.disabled;
+            if (states.pause.text !== undefined) {
+                this.pauseBtn.textContent = states.pause.text;
+            }
+            if (states.pause.style !== undefined) {
+                this.pauseBtn.classList.remove('btn-primary', 'btn-secondary');
+                this.pauseBtn.classList.add(`btn-${states.pause.style}`);
+            }
+        }
+        if (states.cancel && this.cancelBtn) {
+            this.cancelBtn.disabled = states.cancel.disabled;
+        }
+        if (states.retry && this.retryBtn) {
+            this.retryBtn.disabled = states.retry.disabled;
         }
     }
     
     togglePause() {
         this.isPaused = !this.isPaused;
-        if (this.pauseBtn) {
-            this.pauseBtn.textContent = this.isPaused ? '继续上传' : '暂停上传';
+
+        if (this.isPaused) {
+            this.setButtonStates({
+                pause: { disabled: false, text: '继续上传', style: 'primary' }
+            });
+        } else {
+            this.setButtonStates({
+                pause: { disabled: false, text: '暂停上传', style: 'secondary' }
+            });
         }
 
         if (!this.isPaused) {
@@ -502,10 +607,25 @@ class ChunkUploader {
     async cancelUpload() {
         if (confirm('确定要取消上传吗？已上传的分片将被删除。')) {
             this.isCancelled = true;
+
+            // 先取消所有正在进行的分片上传请求
+            this.activeXhrs.forEach(xhr => {
+                try {
+                    xhr.abort();
+                } catch (e) {
+                    console.error('取消上传请求失败:', e);
+                }
+            });
+            this.activeXhrs.clear();
+
+            // 保存 fileMd5Value，因为 reset() 会清空它
+            const fileMd5Value = this.fileMd5Value || '';
+
             this.reset();
-            
+
             try {
-                await fetch(`/oss/cancelChunkUpload?fileMd5=${this.fileMd5Value}&uploadSessionId=${this.uploadSessionId}`, {
+                // 只传递 uploadSessionId，不传递可能为空的 fileMd5
+                await fetch(`/oss/cancelChunkUpload?fileMd5=${encodeURIComponent(fileMd5Value)}&uploadSessionId=${this.uploadSessionId}`, {
                     method: 'DELETE'
                 });
             } catch (error) {
@@ -528,17 +648,13 @@ class ChunkUploader {
         }
 
         this.isPaused = false;
-        if (this.pauseBtn) {
-            this.pauseBtn.textContent = '暂停上传';
-        }
         this.isCancelled = false;
 
-        if (this.retryBtn) {
-            this.retryBtn.disabled = true;
-        }
-        if (this.startBtn) {
-            this.startBtn.disabled = true;
-        }
+        this.setButtonStates({
+            start: { disabled: true },
+            pause: { disabled: false, text: '暂停上传', style: 'secondary' },
+            retry: { disabled: true }
+        });
 
         await this.uploadChunks();
 
@@ -551,25 +667,28 @@ class ChunkUploader {
         }
     }
     
-    showResult(url) {
+    showResult(url, isInstant = false) {
         if (this.result) {
+            const resultTitle = this.result.querySelector('.result-title');
+            if (resultTitle) {
+                resultTitle.textContent = isInstant ? '⚡ 秒传成功' : '✅ 上传成功';
+            }
+
             this.result.classList.add('show');
             this.fileUrl.href = url;
             this.fileUrl.textContent = url;
         }
 
-        if (this.startBtn) {
-            this.startBtn.disabled = false;
+        // 隐藏进度条（如果是秒传，不需要显示进度）
+        if (this.progressContainer && isInstant) {
+            this.progressContainer.classList.remove('show');
         }
-        if (this.pauseBtn) {
-            this.pauseBtn.disabled = true;
-        }
-        if (this.cancelBtn) {
-            this.cancelBtn.disabled = true;
-        }
-        if (this.pauseBtn) {
-            this.pauseBtn.textContent = '暂停上传';
-        }
+
+        this.setButtonStates({
+            start: { disabled: false },
+            pause: { disabled: true, text: '暂停上传', style: 'secondary' },
+            cancel: { disabled: true }
+        });
     }
     
     reset() {
@@ -578,6 +697,7 @@ class ChunkUploader {
         this.uploadedChunks.clear();
         this.isPaused = false;
         this.isCancelled = false;
+        this.activeXhrs.clear();
 
         if (this.fileInfo) {
             this.fileInfo.classList.remove('show');
@@ -589,21 +709,12 @@ class ChunkUploader {
             this.result.classList.remove('show');
         }
 
-        if (this.startBtn) {
-            this.startBtn.disabled = true;
-        }
-        if (this.pauseBtn) {
-            this.pauseBtn.disabled = true;
-        }
-        if (this.cancelBtn) {
-            this.cancelBtn.disabled = true;
-        }
-        if (this.retryBtn) {
-            this.retryBtn.disabled = true;
-        }
-        if (this.pauseBtn) {
-            this.pauseBtn.textContent = '暂停上传';
-        }
+        this.setButtonStates({
+            start: { disabled: true },
+            pause: { disabled: true, text: '暂停上传', style: 'secondary' },
+            cancel: { disabled: true },
+            retry: { disabled: true }
+        });
 
         if (this.fileInput) {
             this.fileInput.value = '';
@@ -619,8 +730,18 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
         // 检查分片上传元素是否存在
         const chunkUploadArea = document.getElementById('chunkUploadArea');
-        if (chunkUploadArea) {
+        const uploadArea = document.getElementById('uploadArea');
+
+        if (chunkUploadArea || uploadArea) {
             chunkUploaderInstance = new ChunkUploader();
+
+            // 初始化存储桶名称显示（针对独立分片上传页面）
+            if (uploadArea) {
+                const bucketNameDisplay = document.getElementById('currentBucketNameDisplay');
+                if (bucketNameDisplay) {
+                    bucketNameDisplay.textContent = 'public';
+                }
+            }
         }
     }, 100);
 });

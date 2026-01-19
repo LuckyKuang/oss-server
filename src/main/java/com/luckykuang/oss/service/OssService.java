@@ -56,8 +56,9 @@ public interface OssService {
      * 文件上传
      * @param file 上传的文件
      * @param bucketName 存储桶名称
+     * @param fileMd5 文件MD5（可选，用于秒传）
      */
-    ApiResult<String> uploadFile(MultipartFile file, String bucketName);
+    ApiResult<String> uploadFile(MultipartFile file, String bucketName, String fileMd5);
 
     /**
      * 文件上传

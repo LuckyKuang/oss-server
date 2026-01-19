@@ -29,4 +29,7 @@ public class ChunkUploadInitVO {
 
     @Schema(description = "上传会话ID，用于区分不同的上传任务")
     private String uploadSessionId;
+
+    @Schema(description = "目标存储桶名称（可选，不传则使用默认存储桶）")
+    private String bucketName;
 }
