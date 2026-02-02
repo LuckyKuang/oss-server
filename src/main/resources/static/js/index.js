@@ -965,6 +965,18 @@ function showUploadModal() {
     document.getElementById('uploadModal').classList.add('show');
     document.getElementById('uploadResult').classList.remove('show');
     setupDragAndDrop();
+
+    // 设置普通上传的存储桶名称显示
+    const normalUploadBucketName = document.getElementById('normalUploadBucketName');
+    if (normalUploadBucketName) {
+        normalUploadBucketName.textContent = currentBucket || 'public';
+    }
+
+    // 设置分片上传的存储桶名称显示（默认为public）
+    const chunkUploadBucketNameDisplay = document.getElementById('chunkUploadBucketNameDisplay');
+    if (chunkUploadBucketNameDisplay) {
+        chunkUploadBucketNameDisplay.textContent = 'public';
+    }
 }
 
 function setupDragAndDrop() {
@@ -1027,9 +1039,30 @@ async function uploadFile() {
     }
 
     const uploadPath = document.getElementById('uploadPath').value;
+
+    // 计算文件的 MD5（用于秒传）
+    const uploadBtn = document.getElementById('uploadBtn');
+    if (uploadBtn) {
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = '🔄 计算MD5中...';
+    }
+
+    let fileMd5 = null;
+    try {
+        fileMd5 = await calculateFileMd5(selectedFile);
+    } catch (error) {
+        console.error('计算MD5失败:', error);
+        // MD5计算失败不影响上传，继续上传但不使用秒传
+    }
+
     const formData = new FormData();
     formData.append('file', selectedFile);
     formData.append('bucketName', currentBucket);
+
+    // 如果MD5计算成功，传递给后端用于秒传
+    if (fileMd5) {
+        formData.append('fileMd5', fileMd5);
+    }
 
     try {
         const response = await fetch('/oss/uploadFile', {
@@ -1040,9 +1073,27 @@ async function uploadFile() {
         if (result.code === '0000' && result.data) {
             const resultBox = document.getElementById('uploadResult');
             const urlElement = document.getElementById('fileUrl');
+
             resultBox.classList.add('show');
             urlElement.href = result.data;
             urlElement.textContent = result.data;
+
+            // 如果是秒传，显示不同的标题
+            if (fileMd5) {
+                // 通过比较返回的URL和当前时间来判断是否是秒传
+                // 秒传的URL是旧文件，新上传的URL包含当前日期
+                const isInstant = !result.data.includes(getCurrentDateString());
+
+                // 获取结果框内的标题元素（第一个div）
+                const resultTitle = resultBox.querySelector('div');
+                if (resultTitle) {
+                    resultTitle.textContent = isInstant ? '⚡ 秒传成功' : '✅ 上传成功';
+                }
+
+                if (isInstant) {
+                    alert('🎉 秒传成功！文件已存在于存储桶中，无需重新上传。\n\n📁 文件路径：\n' + result.data);
+                }
+            }
 
             selectedFile = null;
             document.querySelector('.upload-area p').textContent = '点击或拖拽文件到此处上传';
@@ -1055,7 +1106,61 @@ async function uploadFile() {
         }
     } catch (error) {
         alert('网络错误: ' + error.message);
+    } finally {
+        if (uploadBtn) {
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = '📤 上传';
+        }
     }
+}
+
+// 计算文件MD5
+function calculateFileMd5(file) {
+    return new Promise((resolve, reject) => {
+        const spark = new SparkMD5.ArrayBuffer();
+        const chunkSize = 2 * 1024 * 1024;
+        const chunks = Math.ceil(file.size / chunkSize);
+        let currentChunk = 0;
+
+        const readNextChunk = () => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                spark.append(e.target.result);
+                currentChunk++;
+
+                // 计算完成
+                if (currentChunk >= chunks) {
+                    const md5 = spark.end();
+                    console.log('✅ 文件MD5计算完成:', md5);
+                    resolve(md5);
+                    return;
+                }
+
+                // 继续读取下一个分片
+                readNextChunk();
+            };
+
+            reader.onerror = () => {
+                reject(new Error('读取文件失败'));
+            };
+
+            const start = currentChunk * chunkSize;
+            const end = Math.min(start + chunkSize, file.size);
+            const chunk = file.slice(start, end);
+            reader.readAsArrayBuffer(chunk);
+        };
+
+        readNextChunk();
+    });
+}
+
+// 获取当前日期字符串格式：/2026/01/19/
+function getCurrentDateString() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `/${year}/${month}/${day}/`;
 }
 
 function openChunkUpload() {
@@ -1080,12 +1185,6 @@ function openChunkUpload() {
         // 初始化分片上传器
         if (typeof reinitializeChunkUploader === 'function') {
             reinitializeChunkUploader();
-        }
-
-        // 预填存储桶名称
-        const chunkBucketNameInput = document.getElementById('chunkBucketName');
-        if (chunkBucketNameInput && currentBucket) {
-            chunkBucketNameInput.value = currentBucket;
         }
     }
 }

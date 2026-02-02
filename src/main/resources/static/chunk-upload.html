@@ -14,6 +14,11 @@
         </div>
         
         <div class="content">
+            <div style="margin-bottom: 20px; padding: 12px 15px; background: #e3f2fd; border-radius: 8px; border-left: 4px solid #2196f3;">
+                <div>
+                    <strong>当前存储桶：</strong> <span id="currentBucketNameDisplay" style="font-size: 16px; color: #667eea;"></span>
+                </div>
+            </div>
             <div class="upload-area" id="uploadArea">
                 <div class="upload-icon">📤</div>
                 <div class="upload-text">点击或拖拽文件到此处</div>
@@ -33,10 +38,6 @@
                     <div class="option-label">分片大小 (MB, 最小5MB)</div>
                     <input type="number" class="option-input" id="chunkSize" value="5" min="5" max="100">
                     <div class="error-message" id="chunkSizeError" style="display: none; color: #e74c3c; font-size: 12px; margin-top: 4px;">分片大小不能低于 5MB</div>
-                </div>
-                <div class="option-group">
-                    <div class="option-label">存储桶名称</div>
-                    <input type="text" class="option-input" id="bucketName" placeholder="默认: public">
                 </div>
                 <div class="option-group">
                     <div class="option-label">并发上传数</div>
@@ -73,6 +74,6 @@
     </div>
     
     <script src="https://cdn.jsdelivr.net/npm/spark-md5@3.0.2/spark-md5.min.js"></script>
-    <script src="js/chunk-upload.js"></script>
+    <script src="js/chunk-upload.js?v=16.0"></script>
 </body>
 </html>

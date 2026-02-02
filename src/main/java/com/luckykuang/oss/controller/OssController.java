@@ -73,11 +73,12 @@ public class OssController {
         return ossService.listBuckets();
     }
 
-    @Operation(summary = "文件上传", description = "上传File文件")
-    @PostMapping(value = "uploadFile",consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ApiResult<String> uploadFile(@Schema(description = "上传的文件",type = "file") @RequestPart MultipartFile file,
-                                        @Schema(description = "存储桶名称") @RequestPart String bucketName){
-        return ossService.uploadFile(file,bucketName);
+    @Operation(summary = "文件上传", description = "上传File文件。如果提供了fileMd5参数且文件已存在，将实现秒传。")
+    @PostMapping(value = "uploadFile", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResult<String> uploadFile(@Schema(description = "上传的文件", type = "file") @RequestPart MultipartFile file,
+                                        @Schema(description = "存储桶名称") @RequestPart(required = false) String bucketName,
+                                        @Schema(description = "文件MD5（可选，用于秒传）") @RequestPart(required = false) String fileMd5) {
+        return ossService.uploadFile(file, bucketName, fileMd5);
     }
 
     @Operation(summary = "文件上传", description = "上传文件流")
@@ -161,13 +162,13 @@ public class OssController {
         ossService.downloadFileChunk(bucketName,objectName,offset,length,response);
     }
 
-    @Operation(summary = "初始化分片上传", description = "初始化分片上传，检查并返回已上传的分片状态")
+    @Operation(summary = "初始化分片上传", description = "初始化分片上传，检查并返回已上传的分片状态。如果文件已存在，将实现秒传并直接返回文件路径。")
     @PostMapping(value = "initChunkUpload", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ApiResult<ChunkUploadStatusVO> initChunkUpload(@RequestBody @Validated ChunkUploadInitVO chunkUploadInitVO){
         return ossService.initChunkUpload(chunkUploadInitVO);
     }
 
-    @Operation(summary = "上传文件分片", description = "上传文件分片")
+    @Operation(summary = "上传文件分片", description = "上传文件分片。如果分片已存在，将跳过上传（断点续传）。")
     @PostMapping(value = "uploadChunk", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiResult<String> uploadChunk(@RequestParam @NotBlank String fileName,
                                           @RequestParam @NotBlank String fileMd5,
@@ -189,7 +190,7 @@ public class OssController {
         return ossService.uploadChunk(chunkUploadVO);
     }
 
-    @Operation(summary = "完成分片上传", description = "合并所有分片文件并完成上传")
+    @Operation(summary = "完成分片上传", description = "合并所有分片文件并完成上传。合并后会保存文件MD5索引，后续相同文件可实现秒传。")
     @PostMapping(value = "completeChunkUpload", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ApiResult<String> completeChunkUpload(@RequestBody @Validated ChunkUploadCompleteVO chunkUploadCompleteVO){
         return ossService.completeChunkUpload(chunkUploadCompleteVO);
